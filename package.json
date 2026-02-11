@@ -1,0 +1,40 @@
+{
+  "name": "use-latest-version-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server that provides latest package versions from multiple registries",
+  "type": "module",
+  "bin": {
+    "use-latest-version-mcp-server": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "tsc && node build/index.js stdio",
+    "dev:http": "tsc && node build/index.js http",
+    "start": "node build/index.js http",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "package-versions",
+    "npm",
+    "pypi",
+    "package-manager"
+  ],
+  "author": "Andrew",
+  "license": "MIT",
+  "dependencies": {
+    "@types/express": "^5.0.6",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "@types/cors": "^2.8.19",
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

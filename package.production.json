@@ -1,0 +1,30 @@
+{
+  "name": "use-latest-version-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server that provides latest package versions from multiple registries",
+  "type": "module",
+  "bin": {
+    "use-latest-version-mcp-server": "./build/index.js"
+  },
+  "scripts": {
+    "start": "node build/index.js http"
+  },
+  "keywords": [
+    "mcp",
+    "package-versions",
+    "npm",
+    "pypi",
+    "package-manager"
+  ],
+  "author": "Andrew",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "@types/express": "^5.0.6",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "node-fetch": "^3.3.2"
+  }
+}
