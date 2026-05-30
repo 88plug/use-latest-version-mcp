@@ -211,7 +211,11 @@ export class GlobalVersionOptimizer {
     key: string,
     dependencies: ScannedDependency[]
   ): Promise<OptimizationPlan> {
-    const [registry, packageName] = key.split('@');
+    // Key is `${name}@${registry}` (see groupDependencies). Split on the LAST '@'
+    // so scoped npm names like `@scope/pkg` keep their leading '@'.
+    const sep = key.lastIndexOf('@');
+    const packageName = key.slice(0, sep);
+    const registry = key.slice(sep + 1);
 
     // Get unique versions and constraints
     const uniqueVersions = [...new Set(dependencies.map((d) => d.version).filter((v): v is string => !!v))];

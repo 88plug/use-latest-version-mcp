@@ -25,16 +25,16 @@
   "license": "MIT",
   "dependencies": {
     "@types/express": "^5.0.6",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.2.1",
-    "helmet": "^8.1.0",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/cors": "^2.8.19",
-    "@types/node": "^24.10.1",
+    "@types/node": "^24.12.4",
     "typescript": "^5.9.3"
   }
 }

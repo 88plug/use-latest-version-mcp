@@ -143,6 +143,22 @@ test('satisfiesConstraint: caret not satisfied', () => {
   assert(satisfiesConstraint('2.0.0', constraint) === false, '2.0.0 should not satisfy ^1.2.3');
 });
 
+test('satisfiesConstraint: caret allows minor bump below next major', () => {
+  const constraint = parseConstraint('^1.2.3');
+  // ^1.2.3 => >=1.2.3 <2.0.0; 1.3.0 and 1.9.9 must satisfy
+  assert(satisfiesConstraint('1.3.0', constraint) === true, '1.3.0 should satisfy ^1.2.3');
+  assert(satisfiesConstraint('1.9.9', constraint) === true, '1.9.9 should satisfy ^1.2.3');
+  assert(satisfiesConstraint('1.2.2', constraint) === false, '1.2.2 should not satisfy ^1.2.3');
+});
+
+test('satisfiesConstraint: caret 0.x pins minor', () => {
+  const constraint = parseConstraint('^0.2.3');
+  // ^0.2.3 => >=0.2.3 <0.3.0
+  assert(satisfiesConstraint('0.2.5', constraint) === true, '0.2.5 should satisfy ^0.2.3');
+  assert(satisfiesConstraint('0.3.0', constraint) === false, '0.3.0 should not satisfy ^0.2.3');
+  assert(satisfiesConstraint('0.2.2', constraint) === false, '0.2.2 should not satisfy ^0.2.3');
+});
+
 test('satisfiesConstraint: tilde satisfied', () => {
   const constraint = parseConstraint('~1.2.3');
   assert(satisfiesConstraint('1.2.5', constraint) === true, '1.2.5 should satisfy ~1.2.3');

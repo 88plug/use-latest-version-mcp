@@ -159,15 +159,23 @@ export function satisfiesConstraint(version: string, constraint: VersionConstrai
     }
 
     case 'caret': {
-      const constraintSemver = parseSemVer(constraint.version);
-      if (!constraintSemver) return false;
+      const c = parseSemVer(constraint.version);
+      if (!c) return false;
 
-      // ^1.2.3 -> >=1.2.3 <2.0.0
-      if (semver.major < constraintSemver.major) return false;
-      if (semver.major > constraintSemver.major) return false;
-      if (semver.minor < constraintSemver.minor) return false;
-      if (semver.patch < constraintSemver.patch) return false;
-      return true;
+      // Lower bound: version must be >= the constraint version.
+      if (compareVersions(version, constraint.version) < 0) return false;
+
+      // Upper bound is set by the left-most non-zero component:
+      //   ^1.2.3 -> <2.0.0 ; ^0.2.3 -> <0.3.0 ; ^0.0.3 -> <0.0.4
+      let upperBound: string;
+      if (c.major > 0) {
+        upperBound = `${c.major + 1}.0.0`;
+      } else if (c.minor > 0) {
+        upperBound = `0.${c.minor + 1}.0`;
+      } else {
+        upperBound = `0.0.${c.patch + 1}`;
+      }
+      return compareVersions(version, upperBound) < 0;
     }
 
     case 'tilde': {

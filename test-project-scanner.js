@@ -5,7 +5,7 @@
  */
 
 import { scanProject, findDependencyFiles, findLockFiles, ProjectScanner } from './build/project-scanner.js';
-import { writeFileSync, mkdirSync, rmdirSync, unlinkSync, existsSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 
 console.log('=== Project Scanner Tests ===\n');
@@ -36,9 +36,9 @@ function assert(condition, message) {
 const testDir = './test-project-scan';
 const cleanup = () => {
   if (existsSync(testDir)) {
-    // Simple cleanup - in production use rimraf
     try {
-      rmdirSync(testDir, { recursive: true });
+      // rmdirSync({recursive}) was removed in Node 22+; rmSync is the supported API.
+      rmSync(testDir, { recursive: true, force: true });
     } catch (e) {
       // Ignore cleanup errors
     }

@@ -276,8 +276,15 @@ export class OutdatedChecker {
       constraint: dep.constraint,
       upgradeAvailable,
       majorUpgrade: upgradeAvailable && latestParsed.major > currentParsed.major,
-      minorUpgrade: upgradeAvailable && latestParsed.minor > currentParsed.minor,
-      patchUpgrade: upgradeAvailable && latestParsed.patch > currentParsed.patch,
+      minorUpgrade:
+        upgradeAvailable &&
+        latestParsed.major === currentParsed.major &&
+        latestParsed.minor > currentParsed.minor,
+      patchUpgrade:
+        upgradeAvailable &&
+        latestParsed.major === currentParsed.major &&
+        latestParsed.minor === currentParsed.minor &&
+        latestParsed.patch > currentParsed.patch,
       upgradeRisk: 'low',
       resolved: dep.resolved,
       integrity: dep.integrity,
@@ -354,19 +361,26 @@ export class OutdatedChecker {
   ): Promise<string> {
     const timeout = this.options.timeout || 10000;
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<string>((_, reject) => {
-      setTimeout(() => reject(new Error(`Timeout checking ${packageName} on ${registry}`)), timeout);
+      timer = setTimeout(
+        () => reject(new Error(`Timeout checking ${packageName} on ${registry}`)),
+        timeout
+      );
     });
 
     try {
       const client = getRegistryClient(registry);
+      // Let failures propagate: the caller records them in result.errors instead
+      // of silently treating an unreachable registry as "up to date".
       return await Promise.race([
         client.getLatestVersion(packageName),
         timeoutPromise,
       ]);
-    } catch (error) {
-      // Return current version if check fails
-      return '';
+    } finally {
+      // Clear the timer so a fast success does not leave a dangling timeout
+      // that later rejects unhandled.
+      if (timer) clearTimeout(timer);
     }
   }
 }

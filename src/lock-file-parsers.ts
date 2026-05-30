@@ -46,23 +46,9 @@ export class NpmLockParser implements LockFileParser {
     try {
       const lockfile = JSON.parse(content);
 
-      // npm v2 format (flat dependencies)
-      if (lockfile.dependencies) {
-        for (const [name, dep] of Object.entries(lockfile.dependencies)) {
-          const depData = dep as any;
-          result.dependencies.push({
-            name,
-            version: depData.version,
-            registry: this.registry,
-            resolved: depData.resolved,
-            integrity: depData.integrity,
-            dependencies: depData.dependencies,
-            source: filePath,
-          });
-        }
-      }
-
-      // npm v3+ format (nested packages)
+      // lockfileVersion 2/3 carry BOTH `packages` (authoritative) and a legacy
+      // `dependencies` mirror. Prefer `packages` and only fall back to
+      // `dependencies` for v1 lockfiles, so packages are not counted twice.
       if (lockfile.packages) {
         for (const [path, pkg] of Object.entries(lockfile.packages)) {
           if (path === '') continue; // Skip root package
@@ -77,6 +63,20 @@ export class NpmLockParser implements LockFileParser {
             resolved: pkgData.resolved,
             integrity: pkgData.integrity,
             dependencies: pkgData.dependencies,
+            source: filePath,
+          });
+        }
+      } else if (lockfile.dependencies) {
+        // npm v1 format (flat dependencies)
+        for (const [name, dep] of Object.entries(lockfile.dependencies)) {
+          const depData = dep as any;
+          result.dependencies.push({
+            name,
+            version: depData.version,
+            registry: this.registry,
+            resolved: depData.resolved,
+            integrity: depData.integrity,
+            dependencies: depData.dependencies,
             source: filePath,
           });
         }
@@ -211,18 +211,39 @@ export class PnpmLockParser implements LockFileParser {
           continue;
         }
 
-        // Parse package entries (indented lines starting with /)
-        if (inPackages && trimmed.startsWith('/')) {
-          const match = trimmed.match(/^\/([^@]+)@([^:]+):/);
-          if (match) {
-            const name = match[1];
-            const version = match[2];
-            result.dependencies.push({
-              name,
-              version,
-              registry: this.registry,
-              source: filePath,
-            });
+        // Parse package-key entries. pnpm keys vary by lockfile version:
+        //   v6:  /name@version:           e.g. /@babel/core@7.21.0:
+        //   v9:  name@version:            (no leading slash, scoped keys quoted)
+        // and may carry a peer-deps suffix in parens: /react-dom@18.2.0(react@18.2.0):
+        // Package keys are indented and end with ':'; sub-fields (resolution,
+        // engines, ...) do not contain an '@' after a non-zero index.
+        if (inPackages && line.startsWith('  ') && trimmed.endsWith(':')) {
+          let key = trimmed.slice(0, -1).trim();
+          // Strip surrounding quotes (v9 quotes scoped keys).
+          if (
+            (key.startsWith("'") && key.endsWith("'")) ||
+            (key.startsWith('"') && key.endsWith('"'))
+          ) {
+            key = key.slice(1, -1);
+          }
+          // Drop the leading slash present in v5/v6 keys.
+          if (key.startsWith('/')) key = key.slice(1);
+          // Drop any peer-deps suffix in parentheses.
+          const paren = key.indexOf('(');
+          if (paren !== -1) key = key.slice(0, paren);
+          // Split name@version on the LAST '@' so scoped names keep their '@'.
+          const at = key.lastIndexOf('@');
+          if (at > 0) {
+            const name = key.slice(0, at);
+            const version = key.slice(at + 1);
+            if (name && version) {
+              result.dependencies.push({
+                name,
+                version,
+                registry: this.registry,
+                source: filePath,
+              });
+            }
           }
         }
       }

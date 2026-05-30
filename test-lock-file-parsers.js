@@ -4,7 +4,7 @@
  * Test script for lock file parsers
  */
 
-import { parseLockFile, getLockParserForFile, LOCK_PARSERS } from './build/lock-file-parsers.js';
+import { parseLockFile, getLockParserForFile, LOCK_PARSERS, PnpmLockParser, NpmLockParser } from './build/lock-file-parsers.js';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -193,6 +193,55 @@ test('pnpm lock parser extracts versions', () => {
   const result = parseLockFile(join(testDir, 'pnpm-lock.yaml'));
   const express = result.dependencies.find(d => d.name === 'express');
   assert(express?.version === '4.18.2', 'should extract version 4.18.2');
+});
+
+test('pnpm lock parser handles scoped names and peer-dep suffixes (v6)', () => {
+  const content = `lockfileVersion: '6.0'
+
+packages:
+  /@babel/core@7.21.0:
+    resolution: {integrity: sha512-aaa}
+  /react-dom@18.2.0(react@18.2.0):
+    resolution: {integrity: sha512-bbb}
+`;
+  const result = new PnpmLockParser().parse(content, 'pnpm-lock.yaml');
+  const babel = result.dependencies.find((d) => d.name === '@babel/core');
+  const reactDom = result.dependencies.find((d) => d.name === 'react-dom');
+  assert(babel?.version === '7.21.0', 'scoped @babel/core should resolve to 7.21.0');
+  assert(reactDom?.version === '18.2.0', 'peer-dep suffix should be stripped from react-dom version');
+});
+
+test('pnpm lock parser handles v9 keys without leading slash', () => {
+  const content = `lockfileVersion: '9.0'
+
+packages:
+  lodash@4.17.21:
+    resolution: {integrity: sha512-ccc}
+  '@scope/pkg@1.2.3':
+    resolution: {integrity: sha512-ddd}
+`;
+  const result = new PnpmLockParser().parse(content, 'pnpm-lock.yaml');
+  const lodash = result.dependencies.find((d) => d.name === 'lodash');
+  const scoped = result.dependencies.find((d) => d.name === '@scope/pkg');
+  assert(lodash?.version === '4.17.21', 'v9 unscoped key should resolve lodash to 4.17.21');
+  assert(scoped?.version === '1.2.3', 'v9 scoped key should resolve @scope/pkg to 1.2.3');
+});
+
+test('npm lock parser does not double-count v2 (packages + dependencies)', () => {
+  const content = JSON.stringify({
+    name: 'root',
+    lockfileVersion: 2,
+    packages: {
+      '': { name: 'root', version: '1.0.0' },
+      'node_modules/lodash': { version: '4.17.21' },
+    },
+    dependencies: {
+      lodash: { version: '4.17.21' },
+    },
+  });
+  const result = new NpmLockParser().parse(content, 'package-lock.json');
+  const lodashEntries = result.dependencies.filter((d) => d.name === 'lodash');
+  assert(lodashEntries.length === 1, 'lodash should appear exactly once, not double-counted');
 });
 
 // ============================================================================
