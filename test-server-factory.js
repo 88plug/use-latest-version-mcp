@@ -9,7 +9,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createMcpServer } from './build/server-factory.js';
+import { createMcpServer, getInstallCommand } from './build/server-factory.js';
 
 let passed = 0;
 let failed = 0;
@@ -90,6 +90,17 @@ await test('scan_project inventories this repo (package.json dependencies)', asy
   const names = payload.dependencies.map((d) => d.name);
   assert(names.includes('express'), 'should find express from package.json');
   assert(names.includes('helmet'), 'should find helmet from package.json');
+});
+
+await test('getInstallCommand npm has no double space and supports -D', async () => {
+  assert(
+    getInstallCommand('express', 'npm', '5.2.1', false) === 'npm install express@5.2.1',
+    `non-dev npm command should have no double space, got "${getInstallCommand('express', 'npm', '5.2.1', false)}"`
+  );
+  assert(
+    getInstallCommand('express', 'npm', '5.2.1', true) === 'npm install -D express@5.2.1',
+    'dev npm command should include -D'
+  );
 });
 
 await test('detect_conflicts works end-to-end (no network)', async () => {

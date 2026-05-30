@@ -56,8 +56,9 @@ export function getInstallCommand(
 ): string {
   switch (registry.toLowerCase()) {
     case 'npm':
-      const devFlag = isDev ? '-D' : '';
-      return `npm install ${devFlag} ${packageName}@${version}`;
+      return isDev
+        ? `npm install -D ${packageName}@${version}`
+        : `npm install ${packageName}@${version}`;
     case 'pypi':
     case 'python':
       return `pip install ${packageName}==${version}`;

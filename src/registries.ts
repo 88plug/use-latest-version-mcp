@@ -77,6 +77,22 @@ async function retryWithBackoff<T>(
   throw lastError!;
 }
 
+/**
+ * Pick the latest stable version from a list that is sorted in ascending
+ * version order (as returned by e.g. the NuGet flat-container index). Prerelease
+ * versions (those containing a '-', per SemVer) are skipped so "latest" never
+ * resolves to a beta/rc. Falls back to the last entry only when every version
+ * is a prerelease.
+ */
+export function pickLatestStable(versions: string[]): string {
+  for (let i = versions.length - 1; i >= 0; i--) {
+    if (!versions[i].includes('-')) {
+      return versions[i];
+    }
+  }
+  return versions[versions.length - 1];
+}
+
 export interface PackageInfo {
   name: string;
   latestVersion: string;
@@ -1090,7 +1106,7 @@ export class NuGetRegistryClient implements RegistryClient {
     if (!data.versions || data.versions.length === 0) {
       throw new Error(`No versions found for: ${packageName}`);
     }
-    return data.versions[data.versions.length - 1];
+    return pickLatestStable(data.versions);
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
@@ -1116,7 +1132,7 @@ export class NuGetRegistryClient implements RegistryClient {
       throw new Error(`No versions found for: ${packageName}`);
     }
 
-    const latestVersion = versionsData.versions[versionsData.versions.length - 1];
+    const latestVersion = pickLatestStable(versionsData.versions);
     let description = undefined;
     let homepage = undefined;
 

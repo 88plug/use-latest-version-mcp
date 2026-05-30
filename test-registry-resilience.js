@@ -7,7 +7,7 @@
  * live smoke check (REGISTRY_TIMEOUT_MS=1 aborts a real request).
  */
 
-import { CachingRegistryClient } from './build/registries.js';
+import { CachingRegistryClient, pickLatestStable } from './build/registries.js';
 
 let passed = 0;
 let failed = 0;
@@ -96,6 +96,21 @@ await test('failures are not cached (errors propagate, retried next time)', asyn
   const v = await cached.getLatestVersion('pkg');
   assert(v === '9.9.9', 'second call should succeed (failure was not cached)');
   assert(calls === 2, `inner should be called twice, was ${calls}`);
+});
+
+await test('pickLatestStable skips prereleases (NuGet-style ascending list)', async () => {
+  // Real Newtonsoft.Json-style list: stable releases then a trailing prerelease.
+  assert(pickLatestStable(['13.0.1', '13.0.3', '13.0.5-beta1']) === '13.0.3',
+    'should skip the trailing prerelease and return the latest stable');
+  assert(pickLatestStable(['1.0.0', '1.1.0', '2.0.0']) === '2.0.0',
+    'all-stable list returns the last');
+  assert(pickLatestStable(['1.0.0', '2.0.0-rc.1', '1.5.0']) === '1.5.0',
+    'prerelease anywhere is skipped');
+});
+
+await test('pickLatestStable falls back to last when all are prereleases', async () => {
+  assert(pickLatestStable(['1.0.0-rc.1', '1.0.0-rc.2']) === '1.0.0-rc.2',
+    'no stable version -> last entry');
 });
 
 console.log(`\n=== Test Summary ===`);
