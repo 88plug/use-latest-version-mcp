@@ -4,7 +4,6 @@
  */
 
 import { readFileSync } from 'fs';
-import { parseConstraint } from './version-compatibility.js';
 
 // Parsed dependency information
 export interface ParsedDependency {

@@ -418,8 +418,8 @@ export function checkCompatibility(
 
 // Find compatible version that satisfies all constraints
 export function findCompatibleVersion(
-  packageName: string,
-  registry: string,
+  _packageName: string,
+  _registry: string,
   availableVersions: string[],
   constraints: VersionConstraint[]
 ): string | null {
@@ -451,10 +451,10 @@ export function getVersionDistance(fromVersion: string, toVersion: string, avail
 
 // Suggest safe upgrade target
 export function suggestSafeUpgrade(
-  packageName: string,
+  _packageName: string,
   currentVersion: string,
-  dependencies: Dependency[],
-  maxRisk: 'low' | 'medium' | 'high' = 'medium'
+  _dependencies: Dependency[],
+  _maxRisk: 'low' | 'medium' | 'high' = 'medium'
 ): { version: string | null; risk: UpgradeRisk; compatible: boolean; reason: string } {
   // For now, return the current version as a safe suggestion
   // In a full implementation, we would check against dependencies and available versions

@@ -5,8 +5,8 @@
 
 import { readdirSync, statSync, existsSync } from 'fs';
 import { join, relative, resolve } from 'path';
-import { parseDependencyFile, getParserForFile, PARSERS } from './dependency-parsers.js';
-import { parseLockFile, getLockParserForFile, LOCK_PARSERS } from './lock-file-parsers.js';
+import { parseDependencyFile, getParserForFile } from './dependency-parsers.js';
+import { parseLockFile, getLockParserForFile } from './lock-file-parsers.js';
 
 // ============================================================================
 // Types

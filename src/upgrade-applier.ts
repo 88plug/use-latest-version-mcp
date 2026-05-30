@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync } from 'fs';
-import { join, dirname, basename } from 'path';
+import { join, basename, relative } from 'path';
 import { OptimizationPlan } from './global-version-optimizer.js';
 
 // ============================================================================
@@ -68,6 +68,9 @@ export interface FileDiff {
 export class UpgradeApplier {
   private options: ApplyOptions;
   private backups: string[] = [];
+  // Maps each backup path to the absolute file it was taken from, so rollback
+  // restores to the exact original location (not a basename-derived guess).
+  private backupOrigins = new Map<string, string>();
 
   constructor(options: ApplyOptions) {
     this.options = {
@@ -144,6 +147,10 @@ export class UpgradeApplier {
         }
       }
     }
+
+    // `keep` actions are intentionally excluded from `changes`; count them
+    // directly from the plan so the summary reflects them.
+    result.summary.packagesKept = plan.filter((p) => p.action === 'keep').length;
 
     result.backups = [...this.backups];
 
@@ -258,7 +265,6 @@ export class UpgradeApplier {
 
       for (const section of sections) {
         if (pkg[section] && pkg[section][change.package]) {
-          const oldVersion = pkg[section][change.package];
           const newVersion = change.suggestedConstraint || change.suggestedVersion;
 
           if (change.action === 'remove') {
@@ -342,15 +348,13 @@ export class UpgradeApplier {
       changeMap.set(change.package.toLowerCase(), change);
     }
 
-    let currentSection = '';
     const newLines: string[] = [];
 
     for (const line of lines) {
       const trimmed = line.trim();
 
-      // Track current section
+      // Preserve section header lines unchanged
       if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        currentSection = trimmed.slice(1, -1);
         newLines.push(line);
         continue;
       }
@@ -492,7 +496,7 @@ export class UpgradeApplier {
   private detectAndApplyChanges(
     content: string,
     changes: OptimizationPlan[],
-    filePath: string
+    _filePath: string
   ): string {
     // Try JSON first
     if (content.trim().startsWith('{')) {
@@ -516,7 +520,7 @@ export class UpgradeApplier {
   /**
    * Validate changes don't break file structure
    */
-  private validateFileContent(original: string, modified: string, filePath: string): void {
+  private validateFileContent(_original: string, modified: string, filePath: string): void {
     const fileExt = this.getFileExtension(filePath);
 
     switch (fileExt) {
@@ -589,10 +593,15 @@ export class UpgradeApplier {
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupPath = join(backupDir, `${basename(filePath)}.${timestamp}.backup`);
+    // Encode the project-relative path (sanitized) so files that share a
+    // basename across directories don't collide in the backup folder.
+    const rel = relative(this.options.projectPath, filePath) || basename(filePath);
+    const safeName = rel.replace(/[\\/]/g, '__');
+    const backupPath = join(backupDir, `${safeName}.${timestamp}.backup`);
 
     copyFileSync(filePath, backupPath);
     this.backups.push(backupPath);
+    this.backupOrigins.set(backupPath, filePath);
   }
 
   /**
@@ -601,11 +610,8 @@ export class UpgradeApplier {
   private async rollback(): Promise<void> {
     for (const backupPath of this.backups) {
       try {
-        const originalPath = backupPath
-          .replace(/\.dependency-backups\//, '')
-          .replace(/\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.backup$/, '');
-
-        if (existsSync(backupPath)) {
+        const originalPath = this.backupOrigins.get(backupPath);
+        if (originalPath && existsSync(backupPath)) {
           copyFileSync(backupPath, originalPath);
           unlinkSync(backupPath);
         }
@@ -615,6 +621,7 @@ export class UpgradeApplier {
     }
 
     this.backups = [];
+    this.backupOrigins.clear();
   }
 
   /**
@@ -633,7 +640,7 @@ export class UpgradeApplier {
     packageName: string,
     newVersion: string,
     options?: { constraint?: string; type?: 'production' | 'development' | 'peer' | 'optional' }
-  ): Promise<void> {
+  ): Promise<ApplyResult> {
     const plan: OptimizationPlan[] = [
       {
         package: packageName,
@@ -648,7 +655,7 @@ export class UpgradeApplier {
       },
     ];
 
-    await this.apply(plan);
+    return this.apply(plan);
   }
 
   /**
@@ -735,36 +742,9 @@ export async function applySingleUpgrade(
   options?: Partial<ApplyOptions>
 ): Promise<ApplyResult> {
   const applier = new UpgradeApplier({ projectPath, ...options });
-  await applier.applyUpgrade(file, packageName, newVersion);
-  return {
-    projectPath,
-    appliedAt: new Date(),
-    dryRun: options?.dryRun || false,
-    summary: {
-      totalChanges: 1,
-      filesModified: 1,
-      packagesUpgraded: 1,
-      packagesDowngraded: 0,
-      packagesRemoved: 0,
-      packagesKept: 0,
-      errors: 0,
-      warnings: 0,
-    },
-    changes: [
-      {
-        file,
-        package: packageName,
-        oldVersion: '',
-        newVersion,
-        type: 'production',
-        registry: 'npm',
-      },
-    ],
-    backups: [],
-    errors: [],
-    warnings: [],
-    diffs: [],
-  };
+  // Return the real result of the apply (accurate summary, diffs, errors,
+  // backups) instead of a fabricated success.
+  return applier.applyUpgrade(file, packageName, newVersion);
 }
 
 /**

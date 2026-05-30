@@ -6,12 +6,9 @@
 import { scanProject, ScanResult, ScannedDependency } from './project-scanner.js';
 import { getRegistryClient } from './registries.js';
 import {
-  detectConflicts,
   findCompatibleVersion,
   parseConstraint,
-  satisfiesConstraint,
   compareVersions,
-  Dependency,
   VersionConstraint,
 } from './version-compatibility.js';
 

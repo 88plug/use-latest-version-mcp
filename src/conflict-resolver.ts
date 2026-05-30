@@ -9,10 +9,7 @@ import {
   detectConflicts,
   findCompatibleVersion,
   parseConstraint,
-  satisfiesConstraint,
   compareVersions,
-  Dependency,
-  VersionConstraint,
 } from './version-compatibility.js';
 
 // ============================================================================
@@ -209,7 +206,11 @@ export class ConflictResolver {
     conflict: { package: string; conflicts: string[]; reason: string },
     allDependencies: ScannedDependency[]
   ): Promise<ConflictResolution> {
-    const [registry, packageName] = conflict.package.split(':');
+    // conflict.package is `${registry}:${name}`. Split on the FIRST ':' only,
+    // since Maven names are themselves `groupId:artifactId`.
+    const sep = conflict.package.indexOf(':');
+    const registry = conflict.package.slice(0, sep);
+    const packageName = conflict.package.slice(sep + 1);
 
     // Get all dependencies for this package
     const packageDeps = allDependencies.filter(
@@ -231,7 +232,6 @@ export class ConflictResolver {
     // Get available versions from registry
     let availableVersions: string[] = [];
     try {
-      const client = getRegistryClient(registry);
       const latestVersion = await this.getLatestVersionWithTimeout(packageName, registry);
       if (latestVersion) {
         // For now, just use the latest version

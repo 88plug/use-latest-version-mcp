@@ -35,6 +35,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/cors": "^2.8.19",
     "@types/node": "^24.12.4",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

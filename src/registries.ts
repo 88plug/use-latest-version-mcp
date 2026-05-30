@@ -1,4 +1,29 @@
-import fetch from 'node-fetch';
+import nodeFetch from 'node-fetch';
+import { packageCache, getCacheKey } from './utils.js';
+
+// Registry HTTP calls must never hang forever in production, so every request is
+// wrapped with an AbortController timeout. Configurable via REGISTRY_TIMEOUT_MS.
+const REGISTRY_TIMEOUT_MS = parseInt(process.env.REGISTRY_TIMEOUT_MS || '15000', 10);
+
+// Local timeout-aware fetch. Declared as `fetch` so it transparently replaces the
+// previous bare node-fetch import at every call site without further changes.
+async function fetch(
+  url: Parameters<typeof nodeFetch>[0],
+  options: Parameters<typeof nodeFetch>[1] = {}
+): Promise<Awaited<ReturnType<typeof nodeFetch>>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REGISTRY_TIMEOUT_MS);
+  try {
+    return await nodeFetch(url, { ...options, signal: controller.signal } as Parameters<typeof nodeFetch>[1]);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Registry request timed out after ${REGISTRY_TIMEOUT_MS}ms: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export class EnhancedRegistryError extends Error {
   constructor(
@@ -64,6 +89,44 @@ export interface PackageInfo {
 export interface RegistryClient {
   getLatestVersion(packageName: string): Promise<string>;
   getPackageInfo(packageName: string): Promise<PackageInfo>;
+}
+
+// Cache TTL for registry lookups; set REGISTRY_CACHE_TTL_MS=0 to disable caching.
+const REGISTRY_CACHE_TTL_MS = parseInt(process.env.REGISTRY_CACHE_TTL_MS || '300000', 10);
+
+/**
+ * Wraps a RegistryClient with response caching so repeated lookups (batch checks,
+ * project scans, multiple tools touching the same package) don't hammer the
+ * registry. Only successful results are cached; errors propagate uncached so a
+ * transient failure or a not-found is never memoized.
+ */
+export class CachingRegistryClient implements RegistryClient {
+  constructor(
+    private readonly inner: RegistryClient,
+    private readonly registry: string
+  ) {}
+
+  async getLatestVersion(packageName: string): Promise<string> {
+    const key = getCacheKey(this.registry, packageName, 'version');
+    if (REGISTRY_CACHE_TTL_MS > 0) {
+      const cached = packageCache.get(key);
+      if (cached !== null) return cached as string;
+    }
+    const value = await this.inner.getLatestVersion(packageName);
+    if (REGISTRY_CACHE_TTL_MS > 0) packageCache.set(key, value, REGISTRY_CACHE_TTL_MS);
+    return value;
+  }
+
+  async getPackageInfo(packageName: string): Promise<PackageInfo> {
+    const key = getCacheKey(this.registry, packageName, 'info');
+    if (REGISTRY_CACHE_TTL_MS > 0) {
+      const cached = packageCache.get(key);
+      if (cached !== null) return cached as PackageInfo;
+    }
+    const value = await this.inner.getPackageInfo(packageName);
+    if (REGISTRY_CACHE_TTL_MS > 0) packageCache.set(key, value, REGISTRY_CACHE_TTL_MS);
+    return value;
+  }
 }
 
 export class NpmRegistryClient implements RegistryClient {
@@ -905,7 +968,6 @@ export class ChocolateyRegistryClient implements RegistryClient {
     }
     const text = await response.text();
     const versionMatch = text.match(/<d:Version>([^<]+)<\/d:Version>/);
-    const titleMatch = text.match(/<d:Title>([^<]+)<\/d:Title>/);
     const descMatch = text.match(/<d:Description>([^<]+)<\/d:Description>/);
     const urlMatch = text.match(/<d:ProjectUrl>([^<]+)<\/d:ProjectUrl>/);
     
@@ -2367,7 +2429,7 @@ export class JenkinsPluginsRegistryClient implements RegistryClient {
   }
 }
 
-export function getRegistryClient(registry: string): RegistryClient {
+function createRegistryClient(registry: string): RegistryClient {
   switch (registry.toLowerCase()) {
     case 'npm':
       return new NpmRegistryClient();
@@ -2486,4 +2548,9 @@ export function getRegistryClient(registry: string): RegistryClient {
     default:
       throw new Error(`Unsupported registry: ${registry}`);
   }
+}
+
+export function getRegistryClient(registry: string): RegistryClient {
+  // Decorate every client with response caching + the timeout-aware fetch above.
+  return new CachingRegistryClient(createRegistryClient(registry), registry.toLowerCase());
 }

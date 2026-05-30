@@ -8,7 +8,10 @@
 import { OptimizationPlan } from './global-version-optimizer.js';
 import { parseDependencyFile } from './dependency-parsers.js';
 import { parseLockFile } from './lock-file-parsers.js';
-import { ConflictResolver } from './conflict-resolver.js';
+import {
+  satisfiesConstraint as satisfiesVersionConstraint,
+  parseConstraint,
+} from './version-compatibility.js';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -115,7 +118,6 @@ export interface ValidationOptions {
  */
 export class UpgradeValidator {
   private options: ValidationOptions;
-  private conflictResolver: ConflictResolver;
 
   constructor(options: ValidationOptions) {
     this.options = {
@@ -128,8 +130,6 @@ export class UpgradeValidator {
       maxDepth: 10,
       ...options
     };
-
-    this.conflictResolver = new ConflictResolver({ projectPath: this.options.projectPath });
   }
 
   /**
@@ -362,18 +362,8 @@ export class UpgradeValidator {
       };
     }
 
-    // Check for minor version change (could be breaking in some ecosystems)
-    if (to.minor > from.minor && to.major === from.major) {
-      return {
-        package: packageName,
-        fromVersion,
-        toVersion,
-        type: 'minor',
-        description: `Minor version bump from ${fromVersion} to ${toVersion} may contain new features`,
-        affectedPackages: []
-      };
-    }
-
+    // A minor or patch bump is not a breaking change under semver, so it is not
+    // reported here. (Only a major bump is treated as potentially breaking.)
     return null;
   }
 
@@ -613,21 +603,12 @@ export class UpgradeValidator {
    * Check if version satisfies constraint (simplified)
    */
   private satisfiesConstraint(version: string, constraint: string): boolean {
-    if (constraint === '*' || constraint === 'latest' || constraint === '') {
+    if (!constraint || constraint === '*' || constraint === 'latest') {
       return true;
     }
-
-    const v = this.parseVersion(version);
-    const c = this.parseVersion(constraint.replace(/[\^~>=<]/g, ''));
-
-    if (!v || !c) {
-      return true; // Can't compare, assume satisfies
-    }
-
-    // Simple check: version must be >= constraint
-    return v.major > c.major ||
-           (v.major === c.major && v.minor > c.minor) ||
-           (v.major === c.major && v.minor === c.minor && v.patch >= c.patch);
+    // Delegate to the shared, semver-correct matcher so caret/tilde/range
+    // upper bounds are honored (e.g. 2.0.0 does NOT satisfy ^1.2.0).
+    return satisfiesVersionConstraint(version, parseConstraint(constraint));
   }
 
   /**

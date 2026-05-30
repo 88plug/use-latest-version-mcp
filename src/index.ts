@@ -5,12 +5,16 @@ import { createMcpServer } from './server-factory.js';
 import { MCPHTTPServer } from './http-server.js';
 import { packageCache } from './utils.js';
 
+// Held so the shutdown handler can close it gracefully in HTTP mode.
+let httpServer: MCPHTTPServer | undefined;
+let shuttingDown = false;
+
 async function main() {
   const transportType = process.argv[2] || 'stdio';
   const port = parseInt(process.env.PORT || '3000', 10);
 
   if (transportType === 'http') {
-    const httpServer = new MCPHTTPServer();
+    httpServer = new MCPHTTPServer();
     httpServer.listen(port);
   } else {
     // Default stdio transport for backward compatibility
@@ -21,26 +25,29 @@ async function main() {
   }
 }
 
-// Graceful shutdown handler
-async function shutdown(signal: string) {
+// Graceful shutdown handler. exitCode is 0 for an expected signal and 1 when
+// triggered by an unexpected fault (uncaught exception / unhandled rejection).
+async function shutdown(signal: string, exitCode: number) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.error(`\n${signal} received, shutting down gracefully...`);
 
-  // Clean up cache
-  const cleaned = packageCache.cleanup();
-  console.error(`Cleaned up ${cleaned} expired cache entries`);
-
-  // Give pending requests time to complete
+  // Force exit if graceful shutdown stalls.
   const shutdownTimeout = setTimeout(() => {
     console.error('Forced shutdown after timeout');
-    process.exit(1);
+    process.exit(exitCode || 1);
   }, 10000);
+  shutdownTimeout.unref();
 
   try {
-    // Close server if running
-    // Note: MCP server doesn't have a close method, but we can clean up resources
+    if (httpServer) {
+      await httpServer.close();
+    }
+    const cleaned = packageCache.cleanup();
+    console.error(`Cleaned up ${cleaned} expired cache entries`);
     console.error('Graceful shutdown complete');
     clearTimeout(shutdownTimeout);
-    process.exit(0);
+    process.exit(exitCode);
   } catch (error) {
     console.error('Error during shutdown:', error);
     clearTimeout(shutdownTimeout);
@@ -49,18 +56,18 @@ async function shutdown(signal: string) {
 }
 
 // Register shutdown handlers
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM', 0));
+process.on('SIGINT', () => shutdown('SIGINT', 0));
 
-// Handle uncaught errors
+// Handle uncaught errors — these are faults, so exit non-zero.
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
-  shutdown('uncaughtException');
+  shutdown('uncaughtException', 1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled rejection at:', promise, 'reason:', reason);
-  shutdown('unhandledRejection');
+  shutdown('unhandledRejection', 1);
 });
 
 main().catch((error) => {
