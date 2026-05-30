@@ -4,7 +4,7 @@
  */
 
 import { readdirSync, statSync, existsSync } from 'fs';
-import { join, relative, resolve } from 'path';
+import { join, relative, resolve, basename } from 'path';
 import { parseDependencyFile, getParserForFile } from './dependency-parsers.js';
 import { parseLockFile, getLockParserForFile } from './lock-file-parsers.js';
 
@@ -57,6 +57,8 @@ export interface ScanOptions {
   excludePatterns?: string[];
   includeLockFiles?: boolean;
   followSymlinks?: boolean;
+  /** Parse the contents of found files. Set false to only locate files. Default true. */
+  parse?: boolean;
 }
 
 // ============================================================================
@@ -164,8 +166,10 @@ export class ProjectScanner {
     // Scan directory recursively
     this.scanDirectory(projectPath, projectPath, 0, result);
 
-    // Parse all found files
-    this.parseFiles(result);
+    // Parse all found files (skippable when only the file list is needed)
+    if (this.options.parse !== false) {
+      this.parseFiles(result);
+    }
 
     // Calculate summary
     this.calculateSummary(result);
@@ -237,7 +241,7 @@ export class ProjectScanner {
    * Process a single file
    */
   private processFile(filePath: string, relativePath: string, result: ScanResult): void {
-    const fileName = filePath.split('/').pop() || filePath;
+    const fileName = basename(filePath);
 
     // Check if it's a dependency file
     const depParser = getParserForFile(fileName);
@@ -382,7 +386,7 @@ export function scanProject(projectPath: string, options?: ScanOptions): ScanRes
  * Quick scan to find dependency files only (no parsing)
  */
 export function findDependencyFiles(projectPath: string, options?: ScanOptions): string[] {
-  const scanner = new ProjectScanner({ ...options, includeLockFiles: false });
+  const scanner = new ProjectScanner({ ...options, includeLockFiles: false, parse: false });
   const result = scanner.scan(projectPath);
   return result.files.map((f) => f.path);
 }
@@ -391,7 +395,7 @@ export function findDependencyFiles(projectPath: string, options?: ScanOptions):
  * Quick scan to find lock files only (no parsing)
  */
 export function findLockFiles(projectPath: string, options?: ScanOptions): string[] {
-  const scanner = new ProjectScanner({ ...options, includeLockFiles: true });
+  const scanner = new ProjectScanner({ ...options, includeLockFiles: true, parse: false });
   const result = scanner.scan(projectPath);
   return result.files.filter((f) => f.type === 'lock').map((f) => f.path);
 }

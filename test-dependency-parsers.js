@@ -4,7 +4,7 @@
  * Test script for dependency file parsers
  */
 
-import { parseDependencyFile, getParserForFile, PARSERS } from './build/dependency-parsers.js';
+import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser } from './build/dependency-parsers.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -395,6 +395,68 @@ test('parser handles unknown file type', () => {
   writeFileSync(join(testDir, 'unknown.xyz'), 'some content');
   const result = parseDependencyFile(join(testDir, 'unknown.xyz'));
   assert(result.errors.length > 0, 'should have errors for unknown file type');
+});
+
+test('NpmParser extracts prerelease versions', () => {
+  writeFileSync(join(testDir, 'package.json'), JSON.stringify({
+    name: 'demo',
+    dependencies: { alpha: '^1.2.3-beta.1', stable: '~2.0.0' },
+  }, null, 2));
+  const r = parseDependencyFile(join(testDir, 'package.json'));
+  const alpha = r.dependencies.find((d) => d.name === 'alpha');
+  assert(alpha.version === '1.2.3-beta.1', `prerelease should be extracted, got ${alpha.version}`);
+  const stable = r.dependencies.find((d) => d.name === 'stable');
+  assert(stable.version === '2.0.0', `tilde version should extract 2.0.0, got ${stable.version}`);
+});
+
+// ============================================================================
+// pyproject.toml: PEP 621 and Poetry
+// ============================================================================
+
+test('PyProjectParser parses PEP 621 multi-line dependencies', () => {
+  const content = `[project]
+name = "demo"
+dependencies = [
+  "requests>=2.28.0",
+  "flask==2.3.0",
+  "click",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==7.4.0", "mypy>=1.0"]
+`;
+  const r = new PyProjectParser().parse(content, 'pyproject.toml');
+  const names = r.dependencies.map((d) => d.name);
+  assert(names.includes('requests'), 'should find requests');
+  assert(names.includes('flask'), 'should find flask');
+  assert(names.includes('click'), 'should find bare click');
+  const flask = r.dependencies.find((d) => d.name === 'flask');
+  assert(flask.version === '2.3.0', `flask == pin should extract 2.3.0, got ${flask.version}`);
+  const pytest = r.dependencies.find((d) => d.name === 'pytest');
+  assert(pytest && pytest.type === 'optional', 'optional-dependencies entries should be type optional');
+});
+
+test('PyProjectParser parses Poetry sections and skips python', () => {
+  const content = `[tool.poetry]
+name = "demo"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+requests = "^2.28.0"
+django = { version = ">=3.2,<4.0", optional = false }
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.4.0"
+`;
+  const r = new PyProjectParser().parse(content, 'pyproject.toml');
+  const names = r.dependencies.map((d) => d.name);
+  assert(!names.includes('python'), 'python interpreter constraint must be skipped');
+  assert(names.includes('requests'), 'should find requests');
+  assert(names.includes('django'), 'should find django from inline table');
+  const requests = r.dependencies.find((d) => d.name === 'requests');
+  assert(requests.version === '2.28.0', `caret pin should extract 2.28.0, got ${requests.version}`);
+  const pytest = r.dependencies.find((d) => d.name === 'pytest');
+  assert(pytest && pytest.type === 'development', 'dev-dependencies entries should be type development');
 });
 
 // ============================================================================

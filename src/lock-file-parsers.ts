@@ -4,6 +4,7 @@
  */
 
 import { readFileSync } from 'fs';
+import { basename } from 'path';
 
 // Parsed lock file dependency information
 export interface LockDependency {
@@ -592,7 +593,7 @@ export function getLockParserForFile(fileName: string): LockFileParser | null {
 export function parseLockFile(filePath: string): LockParserResult {
   try {
     const content = readFileSync(filePath, 'utf-8');
-    const fileName = filePath.split('/').pop() || filePath;
+    const fileName = basename(filePath);
     const parser = getLockParserForFile(fileName);
 
     if (!parser) {

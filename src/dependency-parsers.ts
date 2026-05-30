@@ -4,6 +4,7 @@
  */
 
 import { readFileSync } from 'fs';
+import { basename } from 'path';
 
 // Parsed dependency information
 export interface ParsedDependency {
@@ -108,9 +109,12 @@ export class NpmParser implements DependencyParser {
   }
 
   private extractVersion(constraint: string): string | undefined {
-    // Try to extract a specific version from constraint
-    // e.g., "^1.2.3" -> "1.2.3", "~1.2.3" -> "1.2.3", "1.2.3" -> "1.2.3"
-    const match = constraint.match(/^[\^~]?(\d+(?:\.\d+)*(?:\.\d+)?)$/);
+    // Extract a single pinned version from a constraint, including prerelease
+    // and build metadata. e.g. "^1.2.3" -> "1.2.3", "~1.2.3-beta.1" -> "1.2.3-beta.1".
+    // Ranges like ">=1.2.3" have no single version and return undefined.
+    const match = constraint.match(
+      /^[\^~]?(\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
+    );
     return match ? match[1] : undefined;
   }
 }
@@ -220,46 +224,94 @@ export class PyProjectParser implements DependencyParser {
     const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
 
     try {
-      // Simple TOML-like parsing (not full TOML spec)
-      // This is a basic implementation - for production, use a proper TOML parser
+      // Line-based parser (not a full TOML spec) covering the two dominant
+      // pyproject layouts:
+      //   PEP 621: [project] dependencies = [...] and [project.optional-dependencies]
+      //   Poetry:  [tool.poetry.dependencies] / .dev-dependencies / .group.<n>.dependencies
       const lines = content.split('\n');
-      let inDependencies = false;
-      let inDevDependencies = false;
+      let mode: 'none' | 'project' | 'pep621-optional' | 'poetry-prod' | 'poetry-dev' = 'none';
+      let inArray = false;
+      let arrayType: ParsedDependency['type'] = 'production';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
+      const pushSpec = (spec: string, type: ParsedDependency['type']) => {
+        const dep = this.parsePep508(spec);
+        if (dep) {
+          result.dependencies.push({ ...dep, registry: this.registry, type, source: filePath });
+        }
+      };
 
-        // Check for section headers
-        if (trimmed.startsWith('dependencies = [')) {
-          inDependencies = true;
-          inDevDependencies = false;
+      for (const rawLine of lines) {
+        const trimmed = rawLine.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+
+        // Collecting items of a multi-line PEP 621 array.
+        if (inArray) {
+          if (trimmed.startsWith(']')) {
+            inArray = false;
+            continue;
+          }
+          const item = trimmed.match(/^["']([^"']+)["']\s*,?\s*$/);
+          if (item) pushSpec(item[1], arrayType);
           continue;
         }
-        if (trimmed.startsWith('["dev-dependencies"]') || trimmed.startsWith('[tool.poetry.dev-dependencies]')) {
-          inDevDependencies = true;
-          inDependencies = false;
-          continue;
-        }
-        if (trimmed.startsWith('[') && !trimmed.includes('dependencies')) {
-          inDependencies = false;
-          inDevDependencies = false;
+
+        // Section header.
+        const section = trimmed.match(/^\[([^\]]+)\]$/);
+        if (section) {
+          const name = section[1].trim();
+          if (name === 'project') mode = 'project';
+          else if (name === 'project.optional-dependencies') mode = 'pep621-optional';
+          else if (name === 'tool.poetry.dependencies') mode = 'poetry-prod';
+          else if (
+            name === 'tool.poetry.dev-dependencies' ||
+            /^tool\.poetry\.group\..+\.dependencies$/.test(name)
+          ) {
+            mode = 'poetry-dev';
+          } else {
+            mode = 'none';
+          }
           continue;
         }
 
-        // Parse dependency lines
-        if (inDependencies || inDevDependencies) {
-          if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-            const depStr = trimmed.slice(1, -1);
-            const dep = this.parsePoetryDependency(depStr);
-            if (dep) {
-              result.dependencies.push({
-                ...dep,
-                registry: this.registry,
-                type: inDevDependencies ? 'development' : 'production',
-                source: filePath,
-              });
+        // PEP 621 main dependency array.
+        if (mode === 'project' && /^dependencies\s*=\s*\[/.test(trimmed)) {
+          arrayType = 'production';
+          const rest = trimmed.slice(trimmed.indexOf('[') + 1);
+          if (rest.includes(']')) {
+            this.parseInlineArray(rest, (item) => pushSpec(item, 'production'));
+          } else {
+            inArray = true;
+          }
+          continue;
+        }
+
+        // PEP 621 optional-dependencies: each key is a group whose value is an array.
+        if (mode === 'pep621-optional') {
+          const m = trimmed.match(/^[A-Za-z0-9._-]+\s*=\s*\[(.*)$/);
+          if (m) {
+            arrayType = 'optional';
+            if (m[1].includes(']')) {
+              this.parseInlineArray(m[1], (item) => pushSpec(item, 'optional'));
+            } else {
+              inArray = true;
             }
           }
+          continue;
+        }
+
+        // Poetry sections: name = "spec" | name = { version = "spec", ... }
+        if (mode === 'poetry-prod' || mode === 'poetry-dev') {
+          const dep = this.parsePoetryDependency(trimmed);
+          // `python` here is the interpreter constraint, not a package.
+          if (dep && dep.name.toLowerCase() !== 'python') {
+            result.dependencies.push({
+              ...dep,
+              registry: this.registry,
+              type: mode === 'poetry-dev' ? 'development' : 'production',
+              source: filePath,
+            });
+          }
+          continue;
         }
       }
     } catch (error) {
@@ -269,29 +321,57 @@ export class PyProjectParser implements DependencyParser {
     return result;
   }
 
+  // Parse a comma-separated inline array body (text after the leading `[`).
+  private parseInlineArray(body: string, cb: (item: string) => void): void {
+    const end = body.indexOf(']');
+    const inner = end >= 0 ? body.slice(0, end) : body;
+    for (const part of inner.split(',')) {
+      const m = part.trim().match(/^["']([^"']+)["']$/);
+      if (m) cb(m[1]);
+    }
+  }
+
+  // Parse a PEP 508 requirement string: name[extras] <versionspec> ; <markers>
+  private parsePep508(spec: string): { name: string; version?: string; constraint?: string } | null {
+    const noMarker = spec.split(';')[0].trim();
+    if (!noMarker) return null;
+    const m = noMarker.match(/^([A-Za-z0-9._-]+)\s*(?:\[[^\]]*\])?\s*(.*)$/);
+    if (!m) return null;
+    const constraint = m[2].trim() || undefined;
+    return {
+      name: m[1],
+      version: constraint ? this.extractPyVersion(constraint) : undefined,
+      constraint,
+    };
+  }
+
   private parsePoetryDependency(line: string): { name: string; version?: string; constraint?: string } | null {
-    // Parse Poetry dependency format
-    // Examples: requests = "^2.28.0", django = ">=3.2,<4.0", flask
-    const match = line.match(/^([a-zA-Z0-9_-]+)\s*=\s*(.+)$/);
-    if (match) {
-      const version = match[2].replace(/['"]/g, '').trim();
-      return {
-        name: match[1],
-        version: this.extractVersion(version),
-        constraint: version,
-      };
+    const match = line.match(/^([A-Za-z0-9._-]+)\s*=\s*(.+)$/);
+    if (!match) return null;
+    const name = match[1];
+    const value = match[2].trim();
+    // Inline-table form: { version = "^1.0", optional = true }
+    if (value.startsWith('{')) {
+      const v = value.match(/version\s*=\s*["']([^"']+)["']/);
+      const constraint = v ? v[1] : undefined;
+      return { name, version: constraint ? this.extractPyVersion(constraint) : undefined, constraint };
     }
+    const constraint = value.replace(/['"]/g, '').trim();
+    return { name, version: this.extractPyVersion(constraint), constraint };
+  }
 
-    // Simple name without version
-    if (/^[a-zA-Z0-9_-]+$/.test(line)) {
-      return { name: line };
-    }
-
-    return null;
+  // Python pins use ==; Poetry also uses ^/~/bare. Ranges (>=, <, ~=) have no
+  // single version and yield undefined.
+  private extractPyVersion(constraint: string): string | undefined {
+    const exact = constraint.match(/^==\s*([0-9][0-9A-Za-z.\-+]*)$/);
+    if (exact) return exact[1];
+    return this.extractVersion(constraint);
   }
 
   private extractVersion(constraint: string): string | undefined {
-    const match = constraint.match(/^[\^~]?(\d+(?:\.\d+)*(?:\.\d+)?)$/);
+    const match = constraint.match(
+      /^[\^~]?(\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/
+    );
     return match ? match[1] : undefined;
   }
 }
@@ -621,7 +701,7 @@ export function getParserForFile(fileName: string): DependencyParser | null {
 export function parseDependencyFile(filePath: string): ParserResult {
   try {
     const content = readFileSync(filePath, 'utf-8');
-    const fileName = filePath.split('/').pop() || filePath;
+    const fileName = basename(filePath);
     const parser = getParserForFile(fileName);
 
     if (!parser) {
