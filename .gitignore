@@ -5,3 +5,7 @@ dist/
 .DS_Store
 .env
 *.tgz
+
+# one-off dev/maintenance scripts (kept locally, not part of the package)
+fix_*.cjs
+update_*.cjs

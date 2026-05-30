@@ -1,0 +1,414 @@
+#!/usr/bin/env node
+
+/**
+ * Test script for dependency file parsers
+ */
+
+import { parseDependencyFile, getParserForFile, PARSERS } from './build/dependency-parsers.js';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+
+console.log('=== Dependency File Parser Tests ===\n');
+
+// Test counters
+let passed = 0;
+let failed = 0;
+
+function test(name, fn) {
+  try {
+    fn();
+    console.log(`✅ ${name}`);
+    passed++;
+  } catch (error) {
+    console.log(`❌ ${name}`);
+    console.log(`   Error: ${error.message}`);
+    failed++;
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message || 'Assertion failed');
+  }
+}
+
+// Create test directory
+const testDir = './test-dependency-files';
+if (!existsSync(testDir)) {
+  mkdirSync(testDir, { recursive: true });
+}
+
+// ============================================================================
+// Test 1: Parser Registry
+// ============================================================================
+console.log('\n--- Parser Registry ---');
+
+test('PARSERS has all expected parsers', () => {
+  assert(PARSERS.length === 7, 'should have 7 parsers');
+});
+
+test('getParserForFile finds npm parser', () => {
+  const parser = getParserForFile('package.json');
+  assert(parser !== null, 'should find parser for package.json');
+  assert(parser?.name === 'npm', 'should be npm parser');
+});
+
+test('getParserForFile finds python parser', () => {
+  const parser = getParserForFile('requirements.txt');
+  assert(parser !== null, 'should find parser for requirements.txt');
+  assert(parser?.name === 'pypi', 'should be pypi parser');
+});
+
+test('getParserForFile finds go parser', () => {
+  const parser = getParserForFile('go.mod');
+  assert(parser !== null, 'should find parser for go.mod');
+  assert(parser?.name === 'go', 'should be go parser');
+});
+
+test('getParserForFile returns null for unknown file', () => {
+  const parser = getParserForFile('unknown.xyz');
+  assert(parser === null, 'should return null for unknown file');
+});
+
+// ============================================================================
+// Test 2: npm Parser (package.json)
+// ============================================================================
+console.log('\n--- npm Parser ---');
+
+const packageJson = {
+  name: 'test-project',
+  version: '1.0.0',
+  dependencies: {
+    express: '^4.18.0',
+    lodash: '~4.17.0',
+  },
+  devDependencies: {
+    jest: '^29.0.0',
+    typescript: '^5.0.0',
+  },
+  peerDependencies: {
+    react: '>=18.0.0',
+  },
+  optionalDependencies: {
+    fsevents: '^2.3.0',
+  },
+};
+
+writeFileSync(join(testDir, 'package.json'), JSON.stringify(packageJson, null, 2));
+
+test('npm parser parses dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'package.json'));
+  assert(result.errors.length === 0, 'should have no errors');
+  assert(result.dependencies.length === 6, 'should have 6 dependencies (2 prod + 2 dev + 1 peer + 1 optional)');
+});
+
+test('npm parser identifies production dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'package.json'));
+  const prodDeps = result.dependencies.filter(d => d.type === 'production');
+  assert(prodDeps.length === 2, 'should have 2 production dependencies');
+  assert(prodDeps.some(d => d.name === 'express'), 'should include express');
+  assert(prodDeps.some(d => d.name === 'lodash'), 'should include lodash');
+});
+
+test('npm parser identifies dev dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'package.json'));
+  const devDeps = result.dependencies.filter(d => d.type === 'development');
+  assert(devDeps.length === 2, 'should have 2 dev dependencies');
+  assert(devDeps.some(d => d.name === 'jest'), 'should include jest');
+  assert(devDeps.some(d => d.name === 'typescript'), 'should include typescript');
+});
+
+test('npm parser identifies peer dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'package.json'));
+  const peerDeps = result.dependencies.filter(d => d.type === 'peer');
+  assert(peerDeps.length === 1, 'should have 1 peer dependency');
+  assert(peerDeps[0].name === 'react', 'should be react');
+});
+
+test('npm parser identifies optional dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'package.json'));
+  const optDeps = result.dependencies.filter(d => d.type === 'optional');
+  assert(optDeps.length === 1, 'should have 1 optional dependency');
+  assert(optDeps[0].name === 'fsevents', 'should be fsevents');
+});
+
+test('npm parser extracts versions from constraints', () => {
+  const result = parseDependencyFile(join(testDir, 'package.json'));
+  const express = result.dependencies.find(d => d.name === 'express');
+  assert(express?.version === '4.18.0', 'should extract version from ^4.18.0');
+  assert(express?.constraint === '^4.18.0', 'should preserve constraint');
+});
+
+// ============================================================================
+// Test 3: Python Parser (requirements.txt)
+// ============================================================================
+console.log('\n--- Python Parser ---');
+
+const requirementsTxt = `# This is a comment
+requests==2.28.0
+django>=3.2,<4.0
+flask~=2.0
+numpy
+# Another comment
+pandas>=1.5.0
+`;
+
+writeFileSync(join(testDir, 'requirements.txt'), requirementsTxt);
+
+test('python parser parses requirements', () => {
+  const result = parseDependencyFile(join(testDir, 'requirements.txt'));
+  assert(result.errors.length === 0, 'should have no errors');
+  assert(result.dependencies.length === 5, 'should have 5 dependencies (skipping comments)');
+});
+
+test('python parser handles == operator', () => {
+  const result = parseDependencyFile(join(testDir, 'requirements.txt'));
+  const requests = result.dependencies.find(d => d.name === 'requests');
+  assert(requests?.version === '2.28.0', 'should parse == operator');
+});
+
+test('python parser handles >= operator', () => {
+  const result = parseDependencyFile(join(testDir, 'requirements.txt'));
+  const pandas = result.dependencies.find(d => d.name === 'pandas');
+  assert(pandas?.constraint === '>=1.5.0', 'should parse >= operator');
+});
+
+test('python parser handles ~= operator', () => {
+  const result = parseDependencyFile(join(testDir, 'requirements.txt'));
+  const flask = result.dependencies.find(d => d.name === 'flask');
+  assert(flask?.version === '2.0', 'should parse ~= operator');
+});
+
+test('python parser handles packages without version', () => {
+  const result = parseDependencyFile(join(testDir, 'requirements.txt'));
+  const numpy = result.dependencies.find(d => d.name === 'numpy');
+  assert(numpy !== undefined, 'should parse package without version');
+  assert(numpy?.version === undefined, 'should have no version');
+});
+
+test('python parser skips comments', () => {
+  const result = parseDependencyFile(join(testDir, 'requirements.txt'));
+  assert(!result.dependencies.some(d => d.name.startsWith('#')), 'should skip comments');
+});
+
+// ============================================================================
+// Test 4: Go Parser (go.mod)
+// ============================================================================
+console.log('\n--- Go Parser ---');
+
+const goMod = `module example.com/myproject
+
+go 1.21
+
+require (
+	github.com/gin-gonic/gin v1.9.1
+	github.com/stretchr/testify v1.8.4
+	github.com/golang/mock v1.6.0
+)
+`;
+
+writeFileSync(join(testDir, 'go.mod'), goMod);
+
+test('go parser parses go.mod', () => {
+  const result = parseDependencyFile(join(testDir, 'go.mod'));
+  assert(result.errors.length === 0, 'should have no errors');
+  assert(result.dependencies.length === 3, 'should have 3 dependencies');
+});
+
+test('go parser extracts module paths', () => {
+  const result = parseDependencyFile(join(testDir, 'go.mod'));
+  const gin = result.dependencies.find(d => d.name === 'github.com/gin-gonic/gin');
+  assert(gin !== undefined, 'should parse github.com/gin-gonic/gin');
+});
+
+test('go parser extracts versions', () => {
+  const result = parseDependencyFile(join(testDir, 'go.mod'));
+  const gin = result.dependencies.find(d => d.name === 'github.com/gin-gonic/gin');
+  assert(gin?.version === '1.9.1', 'should extract version 1.9.1');
+});
+
+// ============================================================================
+// Test 5: Cargo Parser (Cargo.toml)
+// ============================================================================
+console.log('\n--- Cargo Parser ---');
+
+const cargoToml = `[package]
+name = "myproject"
+version = "0.1.0"
+
+[dependencies]
+serde = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+clap = "4.0"
+
+[dev-dependencies]
+criterion = "0.5"
+`;
+
+writeFileSync(join(testDir, 'Cargo.toml'), cargoToml);
+
+test('cargo parser parses Cargo.toml', () => {
+  const result = parseDependencyFile(join(testDir, 'Cargo.toml'));
+  assert(result.errors.length === 0, 'should have no errors');
+  assert(result.dependencies.length === 4, 'should have 4 dependencies');
+});
+
+test('cargo parser identifies production dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'Cargo.toml'));
+  const prodDeps = result.dependencies.filter(d => d.type === 'production');
+  assert(prodDeps.length === 3, 'should have 3 production dependencies');
+});
+
+test('cargo parser identifies dev dependencies', () => {
+  const result = parseDependencyFile(join(testDir, 'Cargo.toml'));
+  const devDeps = result.dependencies.filter(d => d.type === 'development');
+  assert(devDeps.length === 1, 'should have 1 dev dependency');
+  assert(devDeps[0].name === 'criterion', 'should be criterion');
+});
+
+test('cargo parser handles simple version format', () => {
+  const result = parseDependencyFile(join(testDir, 'Cargo.toml'));
+  const serde = result.dependencies.find(d => d.name === 'serde');
+  assert(serde?.version === '1.0', 'should parse simple version');
+});
+
+test('cargo parser handles object version format', () => {
+  const result = parseDependencyFile(join(testDir, 'Cargo.toml'));
+  const tokio = result.dependencies.find(d => d.name === 'tokio');
+  assert(tokio?.version === '1.0', 'should parse object version format');
+});
+
+// ============================================================================
+// Test 6: Gemfile Parser
+// ============================================================================
+console.log('\n--- Gemfile Parser ---');
+
+const gemfile = `source "https://rubygems.org"
+
+gem "rails", "~> 7.0"
+gem "pg", ">= 1.0"
+gem "puma"
+
+group :development do
+  gem "rubocop"
+end
+`;
+
+writeFileSync(join(testDir, 'Gemfile'), gemfile);
+
+test('gemfile parser parses Gemfile', () => {
+  const result = parseDependencyFile(join(testDir, 'Gemfile'));
+  assert(result.errors.length === 0, 'should have no errors');
+  assert(result.dependencies.length === 3, 'should have 3 dependencies (skipping group)');
+});
+
+test('gemfile parser handles ~> operator', () => {
+  const result = parseDependencyFile(join(testDir, 'Gemfile'));
+  const rails = result.dependencies.find(d => d.name === 'rails');
+  assert(rails?.constraint === '~> 7.0', 'should parse ~> operator');
+});
+
+test('gemfile parser handles >= operator', () => {
+  const result = parseDependencyFile(join(testDir, 'Gemfile'));
+  const pg = result.dependencies.find(d => d.name === 'pg');
+  assert(pg?.constraint === '>= 1.0', 'should parse >= operator');
+});
+
+test('gemfile parser handles gems without version', () => {
+  const result = parseDependencyFile(join(testDir, 'Gemfile'));
+  const puma = result.dependencies.find(d => d.name === 'puma');
+  assert(puma !== undefined, 'should parse gem without version');
+  assert(puma?.version === undefined, 'should have no version');
+});
+
+test('gemfile parser skips source directive', () => {
+  const result = parseDependencyFile(join(testDir, 'Gemfile'));
+  assert(!result.dependencies.some(d => d.name === 'source'), 'should skip source directive');
+});
+
+// ============================================================================
+// Test 7: pom.xml Parser
+// ============================================================================
+console.log('\n--- pom.xml Parser ---');
+
+const pomXml = `<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>myproject</artifactId>
+  <version>1.0.0</version>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.9.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
+`;
+
+writeFileSync(join(testDir, 'pom.xml'), pomXml);
+
+test('pom parser parses pom.xml', () => {
+  const result = parseDependencyFile(join(testDir, 'pom.xml'));
+  assert(result.errors.length === 0, 'should have no errors');
+  assert(result.dependencies.length === 2, 'should have 2 dependencies');
+});
+
+test('pom parser combines groupId and artifactId', () => {
+  const result = parseDependencyFile(join(testDir, 'pom.xml'));
+  const spring = result.dependencies.find(d => d.name === 'org.springframework.boot:spring-boot-starter-web');
+  assert(spring !== undefined, 'should combine groupId:artifactId');
+});
+
+test('pom parser extracts versions', () => {
+  const result = parseDependencyFile(join(testDir, 'pom.xml'));
+  const spring = result.dependencies.find(d => d.name === 'org.springframework.boot:spring-boot-starter-web');
+  assert(spring?.version === '3.0.0', 'should extract version');
+});
+
+// ============================================================================
+// Test 8: Error Handling
+// ============================================================================
+console.log('\n--- Error Handling ---');
+
+test('parser handles invalid JSON', () => {
+  writeFileSync(join(testDir, 'invalid.json'), '{ invalid json }');
+  const result = parseDependencyFile(join(testDir, 'invalid.json'));
+  assert(result.errors.length > 0, 'should have errors for invalid JSON');
+  assert(result.dependencies.length === 0, 'should have no dependencies');
+});
+
+test('parser handles non-existent file', () => {
+  const result = parseDependencyFile(join(testDir, 'nonexistent.txt'));
+  assert(result.errors.length > 0, 'should have errors for non-existent file');
+});
+
+test('parser handles unknown file type', () => {
+  writeFileSync(join(testDir, 'unknown.xyz'), 'some content');
+  const result = parseDependencyFile(join(testDir, 'unknown.xyz'));
+  assert(result.errors.length > 0, 'should have errors for unknown file type');
+});
+
+// ============================================================================
+// Summary
+// ============================================================================
+console.log('\n=== Test Summary ===');
+console.log(`Passed: ${passed}`);
+console.log(`Failed: ${failed}`);
+console.log(`Total: ${passed + failed}`);
+
+if (failed === 0) {
+  console.log('\n✅ All tests passed!');
+  process.exit(0);
+} else {
+  console.log(`\n❌ ${failed} test(s) failed`);
+  process.exit(1);
+}

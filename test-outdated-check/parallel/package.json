@@ -1,0 +1,10 @@
+{
+  "name": "test",
+  "dependencies": {
+    "express": "4.17.0",
+    "lodash": "4.17.15",
+    "axios": "0.21.0",
+    "react": "17.0.0",
+    "vue": "2.6.0"
+  }
+}

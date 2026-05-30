@@ -9,6 +9,10 @@ An MCP (Model Context Protocol) server that ensures you always use the latest ve
 - **Installation Commands**: Generates ready-to-use installation commands with the latest versions
 - **Version Comparison**: Compare current versions with latest to identify updates
 - **Batch Checking**: Check multiple packages at once
+- **Version Compatibility**: Check if package versions are compatible with dependency constraints
+- **Conflict Detection**: Detect version conflicts in dependency lists
+- **Upgrade Path Recommendations**: Get step-by-step upgrade plans with risk assessment
+- **Safe Version Suggestions**: Find compatible versions that satisfy all constraints
 
 ## Supported Registries
 
@@ -178,6 +182,89 @@ Check latest versions of multiple packages at once.
 }
 ```
 
+### 6. check_compatibility
+
+Check if a package version is compatible with specified dependency constraints.
+
+**Parameters:**
+- `package_name` (string): The package name to check
+- `version` (string): The version to check compatibility for
+- `dependencies` (array): List of dependencies with their version constraints
+
+**Example:**
+```json
+{
+  "package_name": "react",
+  "version": "18.2.0",
+  "dependencies": [
+    {"name": "react-dom", "constraint": "^18.0.0"},
+    {"name": "typescript", "constraint": ">=4.0.0"}
+  ]
+}
+```
+
+### 7. detect_conflicts
+
+Detect version conflicts in a list of dependencies.
+
+**Parameters:**
+- `dependencies` (array): List of dependencies to check for conflicts
+
+**Example:**
+```json
+{
+  "dependencies": [
+    {"name": "lodash", "constraint": "^4.0.0", "source": "package-a"},
+    {"name": "lodash", "constraint": "^3.0.0", "source": "package-b"}
+  ]
+}
+```
+
+### 8. suggest_upgrade_path
+
+Generate a step-by-step upgrade path from current version to target version.
+
+**Parameters:**
+- `package_name` (string): The package name
+- `registry` (string): The package registry
+- `current_version` (string): Current version being used
+- `target_version` (string, optional): Target version (defaults to latest)
+- `dependencies` (array, optional): Dependencies that must remain compatible
+
+**Example:**
+```json
+{
+  "package_name": "react",
+  "registry": "npm",
+  "current_version": "16.0.0",
+  "dependencies": [
+    {"name": "react-dom", "constraint": "^16.0.0"}
+  ]
+}
+```
+
+### 9. find_compatible_version
+
+Find a version of a package that satisfies all specified dependency constraints.
+
+**Parameters:**
+- `package_name` (string): The package name
+- `registry` (string): The package registry
+- `constraints` (array): List of version constraints to satisfy
+- `max_risk` (string, optional): Maximum acceptable upgrade risk (low/medium/high)
+
+**Example:**
+```json
+{
+  "package_name": "express",
+  "registry": "npm",
+  "constraints": [
+    {"name": "node", "constraint": ">=14.0.0"}
+  ],
+  "max_risk": "medium"
+}
+```
+
 ## How It Helps LLMs
 
 When an LLM is building code, it may suggest outdated package versions based on its training data. This MCP server allows the LLM to:
@@ -186,6 +273,9 @@ When an LLM is building code, it may suggest outdated package versions based on 
 2. **Provide Accurate Commands**: Generate installation commands with current versions
 3. **Identify Updates**: Compare versions in existing code with latest releases
 4. **Stay Current**: Access real-time package information across multiple ecosystems
+5. **Resolve Conflicts**: Detect and suggest solutions for version conflicts
+6. **Plan Upgrades**: Get safe upgrade paths with risk assessment
+7. **Ensure Compatibility**: Verify that package versions work together
 
 ## Example Workflow
 

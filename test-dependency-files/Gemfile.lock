@@ -1,0 +1,16 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    rails (7.0.0)
+      actionpack (= 7.0.0)
+      activemodel (= 7.0.0)
+    pg (1.4.0)
+    puma (6.0.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  rails (~> 7.0)
+  pg (>= 1.0)
+  puma

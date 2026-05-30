@@ -1,57 +1,44 @@
-#!/usr/bin/env node
-
-import { getRegistryClient } from './build/registries.js';
-
-console.log('Testing registry clients...\n');
-
-async function testRegistry(registry, packageName) {
-  try {
-    console.log(`Testing ${registry}: ${packageName}`);
-    const client = getRegistryClient(registry);
-    const version = await client.getLatestVersion(packageName);
-    const info = await client.getPackageInfo(packageName);
-    console.log(`  ✓ Latest version: ${version}`);
-    console.log(`  ✓ Description: ${info.description?.substring(0, 60)}...`);
-    console.log('');
-    return true;
-  } catch (error) {
-    console.log(`  ✗ Error: ${error.message}`);
-    console.log('');
-    return false;
-  }
-}
-
-async function runTests() {
+import('./build/registries.js').then(async (m) => {
+  const { 
+    NpmRegistryClient, 
+    PyPIRegistryClient, 
+    CratesIORegistryClient,
+    RubyGemsRegistryClient,
+    GoModulesRegistryClient,
+    GitHubRegistryClient,
+    DockerHubRegistryClient,
+    HomebrewRegistryClient,
+    NuGetRegistryClient,
+    PackagistRegistryClient
+  } = m;
+  
   const tests = [
-    { registry: 'npm', package: 'express' },
-    { registry: 'pypi', package: 'requests' },
-    { registry: 'github', package: 'facebook/react' },
-    { registry: 'dockerhub', package: 'nginx' },
-    { registry: 'crates', package: 'serde' },
+    { client: new NpmRegistryClient(), package: 'express', name: 'npm' },
+    { client: new PyPIRegistryClient(), package: 'requests', name: 'pypi' },
+    { client: new CratesIORegistryClient(), package: 'serde', name: 'crates' },
+    { client: new RubyGemsRegistryClient(), package: 'rails', name: 'rubygems' },
+    { client: new GoModulesRegistryClient(), package: 'github.com/gorilla/mux', name: 'go' },
+    { client: new GitHubRegistryClient(), package: 'vercel/next.js', name: 'github' },
+    { client: new DockerHubRegistryClient(), package: 'library/nginx', name: 'dockerhub' },
+    { client: new HomebrewRegistryClient(), package: 'node', name: 'homebrew' },
+    { client: new NuGetRegistryClient(), package: 'Newtonsoft.Json', name: 'nuget' },
+    { client: new PackagistRegistryClient(), package: 'laravel/framework', name: 'packagist' }
   ];
-
-  let passed = 0;
-  let failed = 0;
-
+  
+  console.log('Testing registry clients...\n');
+  
   for (const test of tests) {
-    const result = await testRegistry(test.registry, test.package);
-    if (result) {
-      passed++;
-    } else {
-      failed++;
+    try {
+      const version = await test.client.getLatestVersion(test.package);
+      console.log(`✅ [${test.name.padEnd(12)}] ${test.package.padEnd(30)} -> ${version}`);
+    } catch (error) {
+      console.log(`❌ [${test.name.padEnd(12)}] ${test.package.padEnd(30)} -> ERROR: ${error.message}`);
     }
   }
-
-  console.log(`\n${'='.repeat(50)}`);
-  console.log(`Tests passed: ${passed}/${tests.length}`);
-  console.log(`Tests failed: ${failed}/${tests.length}`);
-  console.log(`${'='.repeat(50)}\n`);
-
-  if (failed === 0) {
-    console.log('✓ All tests passed! MCP server is ready to use.');
-  } else {
-    console.log('✗ Some tests failed. Check network connectivity.');
-  }
-}
-
-runTests().catch(console.error);
+  
+  console.log('\nTest complete!');
+  process.exit(0);
+}).catch(err => {
+  console.error('Error:', err);
+  process.exit(1);
+});

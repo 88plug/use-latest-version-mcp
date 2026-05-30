@@ -12,6 +12,24 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { getRegistryClient, PackageInfo } from './registries.js';
 import { MCPHTTPServer } from './http-server.js';
+import { packageCache } from './utils.js';
+import {
+  parseSemVer,
+  compareVersions,
+  satisfiesConstraint,
+  parseConstraint,
+  detectConflicts,
+  generateUpgradePath,
+  getBreakingChanges,
+  calculateUpgradeRisk,
+  suggestSafeUpgrade,
+  type SemVer,
+  type VersionConstraint,
+  type Dependency,
+  type Conflict,
+  type UpgradeStep,
+  type UpgradeRisk
+} from './version-compatibility.js';
 
 const SUPPORTED_REGISTRIES = [
   'npm', 'pypi', 'maven', 'crates', 'rubygems', 'go', 'github', 'dockerhub', 'gitlab',
@@ -392,6 +410,160 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['packages'],
         },
       },
+      {
+        name: 'check_compatibility',
+        description: 'Check if a package version is compatible with specified dependency constraints. Useful for verifying if an upgrade will break existing dependencies.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            package_name: {
+              type: 'string',
+              description: 'The name of the package to check',
+            },
+            version: {
+              type: 'string',
+              description: 'The version to check compatibility for',
+            },
+            dependencies: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Dependency package name',
+                  },
+                  constraint: {
+                    type: 'string',
+                    description: 'Version constraint (e.g., "^1.2.0", "~2.0", ">=3.0.0")',
+                  },
+                },
+                required: ['name', 'constraint'],
+              },
+              description: 'List of dependencies with their version constraints',
+            },
+          },
+          required: ['package_name', 'version', 'dependencies'],
+        },
+      },
+      {
+        name: 'detect_conflicts',
+        description: 'Detect version conflicts in a list of dependencies. Identifies when the same package is required with incompatible version constraints.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            dependencies: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Dependency package name',
+                  },
+                  constraint: {
+                    type: 'string',
+                    description: 'Version constraint (e.g., "^1.2.0", "~2.0", ">=3.0.0")',
+                  },
+                  source: {
+                    type: 'string',
+                    description: 'Source of this dependency (e.g., which package requires it)',
+                  },
+                },
+                required: ['name', 'constraint'],
+              },
+              description: 'List of dependencies to check for conflicts',
+            },
+          },
+          required: ['dependencies'],
+        },
+      },
+      {
+        name: 'suggest_upgrade_path',
+        description: 'Generate a step-by-step upgrade path from current version to target version, considering intermediate versions that maintain compatibility.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            package_name: {
+              type: 'string',
+              description: 'The name of the package',
+            },
+            registry: {
+              type: 'string',
+              enum: SUPPORTED_REGISTRIES,
+              description: 'The package registry',
+            },
+            current_version: {
+              type: 'string',
+              description: 'Current version being used',
+            },
+            target_version: {
+              type: 'string',
+              description: 'Target version to upgrade to (optional, defaults to latest)',
+            },
+            dependencies: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                  },
+                  constraint: {
+                    type: 'string',
+                  },
+                },
+                required: ['name', 'constraint'],
+              },
+              description: 'Dependencies that must remain compatible during upgrade',
+            },
+          },
+          required: ['package_name', 'registry', 'current_version'],
+        },
+      },
+      {
+        name: 'find_compatible_version',
+        description: 'Find a version of a package that satisfies all specified dependency constraints. Useful for resolving version conflicts.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            package_name: {
+              type: 'string',
+              description: 'The name of the package',
+            },
+            registry: {
+              type: 'string',
+              enum: SUPPORTED_REGISTRIES,
+              description: 'The package registry',
+            },
+            constraints: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: {
+                    type: 'string',
+                    description: 'Package name that has this constraint',
+                  },
+                  constraint: {
+                    type: 'string',
+                    description: 'Version constraint (e.g., "^1.2.0", "~2.0", ">=3.0.0")',
+                  },
+                },
+                required: ['name', 'constraint'],
+              },
+              description: 'List of version constraints to satisfy',
+            },
+            max_risk: {
+              type: 'string',
+              enum: ['low', 'medium', 'high'],
+              description: 'Maximum acceptable upgrade risk (default: medium)',
+              default: 'medium',
+            },
+          },
+          required: ['package_name', 'registry', 'constraints'],
+        },
+      },
     ],
   };
 });
@@ -651,6 +823,169 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'check_compatibility': {
+        const { package_name, version, dependencies } = args as {
+          package_name: string;
+          version: string;
+          dependencies: Array<{ name: string; constraint: string }>;
+        };
+
+        const parsedVersion = parseSemVer(version);
+        if (!parsedVersion) {
+          throw new Error(`Invalid version format: ${version}`);
+        }
+
+        const compatibilityResults = dependencies.map(dep => {
+          const constraint = parseConstraint(dep.constraint);
+          const isCompatible = satisfiesConstraint(version, constraint);
+          return {
+            dependency: dep.name,
+            constraint: dep.constraint,
+            compatible: isCompatible,
+            reason: isCompatible
+              ? `Version ${version} satisfies constraint ${dep.constraint}`
+              : `Version ${version} does not satisfy constraint ${dep.constraint}`,
+          };
+        });
+
+        const allCompatible = compatibilityResults.every(r => r.compatible);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                package: package_name,
+                version,
+                compatible: allCompatible,
+                dependencies: compatibilityResults,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'detect_conflicts': {
+        const { dependencies } = args as {
+          dependencies: Array<{ name: string; constraint: string; source?: string }>;
+        };
+
+        const deps: Dependency[] = dependencies.map(dep => ({
+          name: dep.name,
+          constraint: parseConstraint(dep.constraint),
+          source: dep.source || 'unknown',
+        }));
+
+        const conflicts = detectConflicts(deps);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                hasConflicts: conflicts.length > 0,
+                conflicts,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'suggest_upgrade_path': {
+        const { package_name, registry, current_version, target_version, dependencies } = args as {
+          package_name: string;
+          registry: string;
+          current_version: string;
+          target_version?: string;
+          dependencies?: Array<{ name: string; constraint: string }>;
+        };
+
+        const client = getRegistryClient(registry);
+        const packageInfo = await client.getPackageInfo(package_name);
+        const target = target_version || packageInfo.latestVersion;
+
+        const deps: Dependency[] = (dependencies || []).map(dep => ({
+          name: dep.name,
+          constraint: parseConstraint(dep.constraint),
+          source: 'user-specified',
+        }));
+
+        const upgradePath = generateUpgradePath(
+          package_name,
+          registry,
+          current_version,
+          target,
+          deps
+        );
+
+        const risk = calculateUpgradeRisk(current_version, target);
+        const breakingChanges = getBreakingChanges(current_version, target);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                package: package_name,
+                registry,
+                currentVersion: current_version,
+                targetVersion: target,
+                risk,
+                breakingChanges,
+                upgradePath,
+                installCommand: getInstallCommand(package_name, registry, target),
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'find_compatible_version': {
+        const { package_name, registry, constraints, max_risk } = args as {
+          package_name: string;
+          registry: string;
+          constraints: Array<{ name: string; constraint: string }>;
+          max_risk?: 'low' | 'medium' | 'high';
+        };
+
+        const client = getRegistryClient(registry);
+        const packageInfo = await client.getPackageInfo(package_name);
+        const currentVersion = packageInfo.latestVersion;
+
+        const deps: Dependency[] = constraints.map(c => ({
+          name: c.name,
+          constraint: parseConstraint(c.constraint),
+          source: 'constraint',
+        }));
+
+        const suggestion = suggestSafeUpgrade(
+          package_name,
+          currentVersion,
+          deps,
+          max_risk || 'medium'
+        );
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                package: package_name,
+                registry,
+                latestVersion: currentVersion,
+                suggestedVersion: suggestion.version,
+                risk: suggestion.risk,
+                compatible: suggestion.compatible,
+                reason: suggestion.reason,
+                installCommand: suggestion.version
+                  ? getInstallCommand(package_name, registry, suggestion.version)
+                  : null,
+              }, null, 2),
+            },
+          ],
+        };
+      }
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -682,6 +1017,48 @@ async function main() {
     console.error('Use Latest Version MCP Server running on stdio');
   }
 }
+
+// Graceful shutdown handler
+async function shutdown(signal: string) {
+  console.error(`\n${signal} received, shutting down gracefully...`);
+
+  // Clean up cache
+  const cleaned = packageCache.cleanup();
+  console.error(`Cleaned up ${cleaned} expired cache entries`);
+
+  // Give pending requests time to complete
+  const shutdownTimeout = setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+
+  try {
+    // Close server if running
+    // Note: MCP server doesn't have a close method, but we can clean up resources
+    console.error('Graceful shutdown complete');
+    clearTimeout(shutdownTimeout);
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    clearTimeout(shutdownTimeout);
+    process.exit(1);
+  }
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+  shutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled rejection at:', promise, 'reason:', reason);
+  shutdown('unhandledRejection');
+});
 
 main().catch((error) => {
   console.error('Fatal error in main():', error);

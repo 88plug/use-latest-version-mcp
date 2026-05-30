@@ -648,11 +648,11 @@ export class FlatpakRegistryClient implements RegistryClient {
     }
     const data = await response.json() as any;
 
-    if (!data.version) {
+    if (!data.releases || data.releases.length === 0 || !data.releases[0].version) {
       throw new Error(`No version information available for: ${packageName}`);
     }
 
-    return data.version;
+    return data.releases[0].version;
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
@@ -666,25 +666,27 @@ export class FlatpakRegistryClient implements RegistryClient {
     }
     const data = await response.json() as any;
 
-    if (!data.version) {
+    if (!data.releases || data.releases.length === 0 || !data.releases[0].version) {
       throw new Error(`No version information available for: ${packageName}`);
     }
 
     return {
       name: data.id || packageName,
-      latestVersion: data.version,
+      latestVersion: data.releases[0].version,
       description: data.summary,
       homepage: data.urls?.homepage,
+      publishedAt: data.releases[0]?.timestamp,
       registry: 'flatpak'
     };
   }
 }
 
 export class GradlePluginRegistryClient implements RegistryClient {
-  private baseUrl = 'https://plugins.gradle.org/api/v1';
+  private baseUrl = 'https://plugins.gradle.org';
 
   async getLatestVersion(packageName: string): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/plugins/${packageName}`, {
+    const url = `${this.baseUrl}/plugin/${encodeURIComponent(packageName)}`;
+    const response = await fetch(url, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
@@ -692,12 +694,18 @@ export class GradlePluginRegistryClient implements RegistryClient {
     if (!response.ok) {
       throw new Error(`Plugin not found: ${packageName}`);
     }
-    const data = await response.json() as any;
-    return data.latestVersion;
+    const text = await response.text();
+    // Extract version from HTML: <h3>Version 0.53.0  (latest) </h3> or <h3>Version 2.3.20-Beta2  (latest) </h3>
+    const versionMatch = text.match(/<h3>Version\s+([\d.]+(?:-[\w.]+)?)\s+\(latest\)/);
+    if (!versionMatch) {
+      throw new Error(`Could not extract version from response for: ${packageName}`);
+    }
+    return versionMatch[1];
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
-    const response = await fetch(`${this.baseUrl}/plugins/${packageName}`, {
+    const url = `${this.baseUrl}/plugin/${encodeURIComponent(packageName)}`;
+    const response = await fetch(url, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
@@ -705,13 +713,25 @@ export class GradlePluginRegistryClient implements RegistryClient {
     if (!response.ok) {
       throw new Error(`Plugin not found: ${packageName}`);
     }
-    const data = await response.json() as any;
+    const text = await response.text();
+    
+    // Extract version (handles versions like 0.53.0 or 2.3.20-Beta2)
+    const versionMatch = text.match(/<h3>Version\s+([\d.]+(?:-[\w.]+)?)\s+\(latest\)/);
+    if (!versionMatch) {
+      throw new Error(`Could not extract version from response for: ${packageName}`);
+    }
+    
+    // Extract description
+    const descMatch = text.match(/<span id="plugin-version-description"[^>]*>([^<]+)<\/span>/);
+    
+    // Extract website
+    const websiteMatch = text.match(/<a id="website" href="([^"]+)">/);
 
     return {
-      name: data.id,
-      latestVersion: data.latestVersion,
-      description: data.description,
-      homepage: data.website,
+      name: packageName,
+      latestVersion: versionMatch[1],
+      description: descMatch ? descMatch[1].trim() : undefined,
+      homepage: websiteMatch ? websiteMatch[1] : url,
       registry: 'gradle'
     };
   }
@@ -758,7 +778,7 @@ export class TerraformRegistryClient implements RegistryClient {
   private parseModuleName(packageName: string): [string, string, string] {
     const parts = packageName.split('/');
     if (parts.length !== 3) {
-      throw new Error('Terraform module must be in format namespace/name/provider');
+      throw new Error(`Terraform module must be in format namespace/name/provider (e.g., terraform-aws-modules/vpc/aws). Got: ${packageName}`);
     }
     return [parts[0], parts[1], parts[2]];
   }
@@ -769,7 +789,7 @@ export class AnsibleGalaxyRegistryClient implements RegistryClient {
 
   async getLatestVersion(packageName: string): Promise<string> {
     const [namespace, name] = this.parseCollectionName(packageName);
-    const response = await fetch(`${this.baseUrl}/v2/collections/${namespace}/${name}/`, {
+    const response = await fetch(`${this.baseUrl}/v3/plugin/ansible/content/published/collections/index/${namespace}/${name}/`, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
@@ -778,12 +798,12 @@ export class AnsibleGalaxyRegistryClient implements RegistryClient {
       throw new Error(`Collection not found: ${packageName}`);
     }
     const data = await response.json() as any;
-    return data.latest_version.version;
+    return data.highest_version.version;
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
     const [namespace, name] = this.parseCollectionName(packageName);
-    const response = await fetch(`${this.baseUrl}/v2/collections/${namespace}/${name}/`, {
+    const response = await fetch(`${this.baseUrl}/v3/plugin/ansible/content/published/collections/index/${namespace}/${name}/`, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
@@ -794,10 +814,10 @@ export class AnsibleGalaxyRegistryClient implements RegistryClient {
     const data = await response.json() as any;
 
     return {
-      name: `${data.namespace.name}.${data.name}`,
-      latestVersion: data.latest_version.version,
-      description: data.description,
-      homepage: data.latest_version.href,
+      name: `${data.namespace}.${data.name}`,
+      latestVersion: data.highest_version.version,
+      description: data.description || '',
+      homepage: `https://galaxy.ansible.com/${data.namespace}/${data.name}`,
       registry: 'ansible'
     };
   }
@@ -805,7 +825,7 @@ export class AnsibleGalaxyRegistryClient implements RegistryClient {
   private parseCollectionName(packageName: string): [string, string] {
     const parts = packageName.split('.');
     if (parts.length !== 2) {
-      throw new Error('Ansible collection must be in format namespace.name');
+      throw new Error(`Ansible collection must be in format namespace.name (e.g., community.general). Got: ${packageName}`);
     }
     return [parts[0], parts[1]];
   }
@@ -853,7 +873,7 @@ export class ChocolateyRegistryClient implements RegistryClient {
 
   async getLatestVersion(packageName: string): Promise<string> {
     const response = await fetch(
-      `${this.baseUrl}/Packages()?$filter=Id eq '${packageName}' and IsLatestVersion&$format=json`,
+      `${this.baseUrl}/Packages()?$filter=Id eq '${packageName}' and IsLatestVersion`,
       {
         headers: {
           'User-Agent': 'use-latest-version-mcp-server'
@@ -863,16 +883,17 @@ export class ChocolateyRegistryClient implements RegistryClient {
     if (!response.ok) {
       throw new Error(`Package not found: ${packageName}`);
     }
-    const data = await response.json() as any;
-    if (!data.d || !data.d.results || data.d.results.length === 0) {
-      throw new Error(`Package not found: ${packageName}`);
+    const text = await response.text();
+    const versionMatch = text.match(/<d:Version>([^<]+)<\/d:Version>/);
+    if (!versionMatch) {
+      throw new Error(`Could not extract version from response for: ${packageName}`);
     }
-    return data.d.results[0].NormalizedVersion || data.d.results[0].Version;
+    return versionMatch[1];
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
     const response = await fetch(
-      `${this.baseUrl}/Packages()?$filter=Id eq '${packageName}' and IsLatestVersion&$format=json`,
+      `${this.baseUrl}/Packages()?$filter=Id eq '${packageName}' and IsLatestVersion`,
       {
         headers: {
           'User-Agent': 'use-latest-version-mcp-server'
@@ -882,18 +903,22 @@ export class ChocolateyRegistryClient implements RegistryClient {
     if (!response.ok) {
       throw new Error(`Package not found: ${packageName}`);
     }
-    const data = await response.json() as any;
-    if (!data.d || !data.d.results || data.d.results.length === 0) {
-      throw new Error(`Package not found: ${packageName}`);
+    const text = await response.text();
+    const versionMatch = text.match(/<d:Version>([^<]+)<\/d:Version>/);
+    const titleMatch = text.match(/<d:Title>([^<]+)<\/d:Title>/);
+    const descMatch = text.match(/<d:Description>([^<]+)<\/d:Description>/);
+    const urlMatch = text.match(/<d:ProjectUrl>([^<]+)<\/d:ProjectUrl>/);
+    
+    if (!versionMatch) {
+      throw new Error(`Could not extract version from response for: ${packageName}`);
     }
 
-    const pkg = data.d.results[0];
     return {
-      name: pkg.Id,
-      latestVersion: pkg.NormalizedVersion || pkg.Version,
-      description: pkg.Description,
-      homepage: pkg.ProjectUrl,
-      publishedAt: pkg.Published,
+      name: packageName,
+      latestVersion: versionMatch[1],
+      description: descMatch ? descMatch[1] : '',
+      homepage: urlMatch ? urlMatch[1] : '',
+      publishedAt: '',
       registry: 'chocolatey'
     };
   }
@@ -1246,6 +1271,9 @@ export class GitHubContainerRegistryClient implements RegistryClient {
       }
     );
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error(`GitHub Container Registry requires authentication. Please set GITHUB_TOKEN environment variable. Package: ${packageName}`);
+      }
       throw new Error(`Container package not found: ${packageName}`);
     }
     const data = await response.json() as any;
@@ -1276,6 +1304,9 @@ export class GitHubContainerRegistryClient implements RegistryClient {
       }
     );
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error(`GitHub Container Registry requires authentication. Please set GITHUB_TOKEN environment variable. Package: ${packageName}`);
+      }
       throw new Error(`Container package not found: ${packageName}`);
     }
     const data = await response.json() as any;
@@ -1733,77 +1764,122 @@ export class DubRegistryClient implements RegistryClient {
 export class LuaRocksRegistryClient implements RegistryClient {
   private baseUrl = 'https://luarocks.org';
 
+  private parsePackageName(packageName: string): { manifest: string; name: string } {
+    const parts = packageName.split('/');
+    if (parts.length !== 2) {
+      throw new EnhancedRegistryError(
+        `Invalid package name format. Expected 'manifest/package' (e.g., 'luasocket/luasocket').`,
+        'luarocks',
+        packageName,
+        `${this.baseUrl}/modules/${packageName}`
+      );
+    }
+    return { manifest: parts[0], name: parts[1] };
+  }
+
+  private extractVersionFromHtml(html: string): string | null {
+    // Look for version rows in the HTML
+    // Pattern: <div class="version_row"><a href="/modules/manifest/package/version">version</a>
+    // We need to skip versions with <span class="development_flag">dev</span>
+    const versionRowRegex = /<div class="version_row">(.*?)<\/div>/gs;
+    const matches = [...html.matchAll(versionRowRegex)];
+
+    for (const match of matches) {
+      const rowHtml = match[1];
+      // Skip if this row has a development flag
+      if (rowHtml.includes('class="development_flag"')) {
+        continue;
+      }
+      // Extract version from the link
+      const versionMatch = rowHtml.match(/<a[^>]*href="\/modules\/[^\/]+\/[^\/]+\/([^"]+)">([^<]+)<\/a>/);
+      if (versionMatch) {
+        return versionMatch[2];
+      }
+    }
+
+    return null;
+  }
+
+  private extractDescriptionFromHtml(html: string): string | null {
+    // Look for description in the HTML
+    const descRegex = /<div class="module_description">\s*<p>([^<]+)<\/p>/s;
+    const match = html.match(descRegex);
+    return match ? match[1].trim() : null;
+  }
+
   async getLatestVersion(packageName: string): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/api/v1/modules/${packageName}`, {
+    const { manifest, name } = this.parsePackageName(packageName);
+    const url = `${this.baseUrl}/modules/${manifest}/${name}`;
+
+    const response = await retryWithBackoff(() => fetch(url, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
-    });
+    }));
+
     if (!response.ok) {
-      throw new Error(`Package not found: ${packageName}`);
+      throw new EnhancedRegistryError(
+        `Package not found. Verify the package name exists on LuaRocks.`,
+        'luarocks',
+        packageName,
+        url,
+        response.status
+      );
     }
-    const data = await response.json() as any;
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      throw new Error(`No versions found for: ${packageName}`);
+    const html = await response.text();
+    const version = this.extractVersionFromHtml(html);
+
+    if (!version) {
+      throw new EnhancedRegistryError(
+        `No versions found for package. The package page may have changed.`,
+        'luarocks',
+        packageName,
+        url
+      );
     }
 
-    const versions = data.map((item: any) => item.version);
-    const sortedVersions = versions.sort((a: string, b: string) => {
-      const aParts = a.split('.').map(Number);
-      const bParts = b.split('.').map(Number);
-
-      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        const aNum = aParts[i] || 0;
-        const bNum = bParts[i] || 0;
-        if (aNum !== bNum) {
-          return bNum - aNum;
-        }
-      }
-      return 0;
-    });
-
-    return sortedVersions[0];
+    return version;
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
-    const response = await fetch(`${this.baseUrl}/api/v1/modules/${packageName}`, {
+    const { manifest, name } = this.parsePackageName(packageName);
+    const url = `${this.baseUrl}/modules/${manifest}/${name}`;
+
+    const response = await retryWithBackoff(() => fetch(url, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
-    });
+    }));
+
     if (!response.ok) {
-      throw new Error(`Package not found: ${packageName}`);
+      throw new EnhancedRegistryError(
+        `Package not found. Verify the package name exists on LuaRocks.`,
+        'luarocks',
+        packageName,
+        url,
+        response.status
+      );
     }
-    const data = await response.json() as any;
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      throw new Error(`No versions found for: ${packageName}`);
+    const html = await response.text();
+    const latestVersion = this.extractVersionFromHtml(html);
+    const description = this.extractDescriptionFromHtml(html);
+
+    if (!latestVersion) {
+      throw new EnhancedRegistryError(
+        `No versions found for package. The package page may have changed.`,
+        'luarocks',
+        packageName,
+        url
+      );
     }
-
-    const versions = data.map((item: any) => item.version);
-    const sortedVersions = versions.sort((a: string, b: string) => {
-      const aParts = a.split('.').map(Number);
-      const bParts = b.split('.').map(Number);
-
-      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        const aNum = aParts[i] || 0;
-        const bNum = bParts[i] || 0;
-        if (aNum !== bNum) {
-          return bNum - aNum;
-        }
-      }
-      return 0;
-    });
-
-    const latestVersion = sortedVersions[0];
-    const latestEntry = data.find((item: any) => item.version === latestVersion);
 
     return {
       name: packageName,
       latestVersion,
-      description: latestEntry?.summary,
-      homepage: latestEntry?.homepage || `${this.baseUrl}/modules/${packageName}`,
+      description: description || undefined,
+      homepage: url,
       registry: 'luarocks'
     };
   }
@@ -1812,51 +1888,114 @@ export class LuaRocksRegistryClient implements RegistryClient {
 export class ElmPackagesRegistryClient implements RegistryClient {
   private baseUrl = 'https://package.elm-lang.org';
 
+  private parsePackageName(packageName: string): [string, string] {
+    const parts = packageName.split('/');
+    if (parts.length !== 2) {
+      throw new EnhancedRegistryError(
+        `Invalid package name format. Expected 'author/package' (e.g., 'elm/browser').`,
+        'elm',
+        packageName,
+        `${this.baseUrl}/packages/${packageName}`
+      );
+    }
+    return [parts[0], parts[1]];
+  }
+
+  private getLatestVersionFromReleases(releases: Record<string, number>): string {
+    // The releases.json returns an object with version numbers as keys
+    // and timestamps as values. We need to find the latest version.
+    const versions = Object.keys(releases);
+    if (versions.length === 0) {
+      throw new Error('No versions found');
+    }
+    // Sort versions semantically to find the latest
+    return versions.sort((a, b) => {
+      const aParts = a.split('.').map(Number);
+      const bParts = b.split('.').map(Number);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aNum = aParts[i] || 0;
+        const bNum = bParts[i] || 0;
+        if (aNum !== bNum) {
+          return bNum - aNum;
+        }
+      }
+      return 0;
+    })[0];
+  }
+
   async getLatestVersion(packageName: string): Promise<string> {
     const [author, pkg] = this.parsePackageName(packageName);
-    const response = await fetch(`${this.baseUrl}/packages/${author}/${pkg}/releases.json`, {
+    const url = `${this.baseUrl}/packages/${author}/${pkg}/releases.json`;
+    const response = await retryWithBackoff(() => fetch(url, {
       headers: {
         'User-Agent': 'use-latest-version-mcp-server'
       }
-    });
+    }));
+
     if (!response.ok) {
-      throw new Error(`Package not found: ${packageName}`);
+      throw new EnhancedRegistryError(
+        `Package not found. Verify the package name exists on Elm package registry.`,
+        'elm',
+        packageName,
+        url,
+        response.status
+      );
     }
-    const data = await response.json() as any;
 
-    if (!Array.isArray(data) || data.length === 0) {
-      throw new Error(`No versions found for: ${packageName}`);
+    const data = await response.json() as Record<string, number>;
+
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
+      throw new EnhancedRegistryError(
+        `No versions found for package.`,
+        'elm',
+        packageName,
+        url
+      );
     }
 
-    return data[data.length - 1];
+    return this.getLatestVersionFromReleases(data);
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
     const [author, pkg] = this.parsePackageName(packageName);
+    const releasesUrl = `${this.baseUrl}/packages/${author}/${pkg}/releases.json`;
+    const docsUrl = `${this.baseUrl}/packages/${author}/${pkg}/latest/elm.json`;
+
     const [releasesResponse, docsResponse] = await Promise.all([
-      fetch(`${this.baseUrl}/packages/${author}/${pkg}/releases.json`, {
+      retryWithBackoff(() => fetch(releasesUrl, {
         headers: {
           'User-Agent': 'use-latest-version-mcp-server'
         }
-      }),
-      fetch(`${this.baseUrl}/packages/${author}/${pkg}/latest/elm.json`, {
+      })),
+      retryWithBackoff(() => fetch(docsUrl, {
         headers: {
           'User-Agent': 'use-latest-version-mcp-server'
         }
-      })
+      }))
     ]);
 
     if (!releasesResponse.ok) {
-      throw new Error(`Package not found: ${packageName}`);
+      throw new EnhancedRegistryError(
+        `Package not found. Verify the package name exists on Elm package registry.`,
+        'elm',
+        packageName,
+        releasesUrl,
+        releasesResponse.status
+      );
     }
 
-    const releasesData = await releasesResponse.json() as any;
+    const releasesData = await releasesResponse.json() as Record<string, number>;
 
-    if (!Array.isArray(releasesData) || releasesData.length === 0) {
-      throw new Error(`No versions found for: ${packageName}`);
+    if (!releasesData || typeof releasesData !== 'object' || Object.keys(releasesData).length === 0) {
+      throw new EnhancedRegistryError(
+        `No versions found for package.`,
+        'elm',
+        packageName,
+        releasesUrl
+      );
     }
 
-    const latestVersion = releasesData[releasesData.length - 1];
+    const latestVersion = this.getLatestVersionFromReleases(releasesData);
     let description = undefined;
 
     if (docsResponse.ok) {
@@ -1871,14 +2010,6 @@ export class ElmPackagesRegistryClient implements RegistryClient {
       homepage: `${this.baseUrl}/packages/${author}/${pkg}/latest`,
       registry: 'elm'
     };
-  }
-
-  private parsePackageName(packageName: string): [string, string] {
-    const parts = packageName.split('/');
-    if (parts.length !== 2) {
-      throw new Error('Elm package must be in format author/package');
-    }
-    return [parts[0], parts[1]];
   }
 }
 
