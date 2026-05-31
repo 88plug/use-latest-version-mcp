@@ -100,6 +100,9 @@ const DEPENDENCY_FILE_PATTERNS = [
   'pom.xml',
   'pyproject.toml',
   '*.csproj',
+  'composer.json',
+  'pubspec.yaml',
+  'environment.yml',
 ];
 
 const LOCK_FILE_PATTERNS = [

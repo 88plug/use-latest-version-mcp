@@ -1,5 +1,6 @@
 import nodeFetch from 'node-fetch';
 import { packageCache, getCacheKey, getCircuitBreaker } from './utils.js';
+import { compareVersions } from './version-compatibility.js';
 
 // Registry HTTP calls must never hang forever in production, so every request is
 // wrapped with an AbortController timeout. Configurable via REGISTRY_TIMEOUT_MS.
@@ -320,8 +321,20 @@ export class MavenRegistryClient implements RegistryClient {
   private baseUrl = 'https://search.maven.org/solrsearch/select';
 
   async getLatestVersion(packageName: string): Promise<string> {
+    const versions = await this.getAvailableVersions(packageName);
+    // Maven Central's Solr `latestVersion` field is the most RECENTLY PUBLISHED
+    // version, which can be an alpha/beta. Pick the highest STABLE version
+    // (falling back to the highest of any if all are prereleases). Computed via
+    // compareVersions so it is independent of the result ordering.
+    const stable = versions.filter((v) => !this.isPrerelease(v));
+    const pool = stable.length > 0 ? stable : versions;
+    return pool.reduce((a, b) => (compareVersions(b, a) > 0 ? b : a));
+  }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
     const [groupId, artifactId] = this.parseCoordinates(packageName);
-    const url = `${this.baseUrl}?q=g:"${groupId}"+AND+a:"${artifactId}"&rows=1&wt=json`;
+    // core=gav returns one doc per published version (field `v`).
+    const url = `${this.baseUrl}?q=g:"${groupId}"+AND+a:"${artifactId}"&core=gav&rows=200&wt=json`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new EnhancedRegistryError(
@@ -333,7 +346,8 @@ export class MavenRegistryClient implements RegistryClient {
       );
     }
     const data = await response.json() as any;
-    if (data.response.numFound === 0) {
+    const docs = data.response?.docs || [];
+    if (docs.length === 0) {
       throw new EnhancedRegistryError(
         `Artifact not found. Verify groupId:artifactId format is correct and exists on Maven Central.`,
         'maven',
@@ -341,38 +355,22 @@ export class MavenRegistryClient implements RegistryClient {
         url
       );
     }
-    return data.response.docs[0].latestVersion;
+    return docs.map((d: any) => d.v).filter((v: any): v is string => !!v);
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
     const [groupId, artifactId] = this.parseCoordinates(packageName);
-    const url = `${this.baseUrl}?q=g:"${groupId}"+AND+a:"${artifactId}"&rows=1&wt=json`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new EnhancedRegistryError(
-        `Failed to query Maven Central. Check network connection or try again later.`,
-        'maven',
-        packageName,
-        url,
-        response.status
-      );
-    }
-    const data = await response.json() as any;
-    if (data.response.numFound === 0) {
-      throw new EnhancedRegistryError(
-        `Artifact not found. Verify groupId:artifactId format is correct and exists on Maven Central.`,
-        'maven',
-        packageName,
-        url
-      );
-    }
-
-    const doc = data.response.docs[0];
     return {
-      name: `${doc.g}:${doc.a}`,
-      latestVersion: doc.latestVersion,
+      name: `${groupId}:${artifactId}`,
+      latestVersion: await this.getLatestVersion(packageName),
       registry: 'maven'
     };
+  }
+
+  // Maven prerelease/snapshot markers (case-insensitive): -alpha/-beta/-rc/-m/-cr,
+  // .RELEASE-less qualifiers, and -SNAPSHOT.
+  private isPrerelease(v: string): boolean {
+    return /-?(alpha|beta|rc|cr|m\d|snapshot|pr|preview|dev|ea)\b/i.test(v) || v.includes('-');
   }
 
   private parseCoordinates(packageName: string): [string, string] {
@@ -1858,32 +1856,10 @@ export class HackageRegistryClient implements RegistryClient {
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
-    const versionUrl = `${this.baseUrl}/package/${packageName}/preferred`;
-    const versionResponse = await fetch(versionUrl, {
-      headers: {
-        'User-Agent': 'use-latest-version-mcp-server'
-      }
-    });
-    if (!versionResponse.ok) {
-      throw new EnhancedRegistryError(
-        `Package not found. Verify the package name exists on Hackage.`,
-        'hackage',
-        packageName,
-        versionUrl,
-        versionResponse.status
-      );
-    }
-    const versionText = await versionResponse.text();
-    const versionMatch = versionText.match(/"(.+?)"/);
-    if (!versionMatch) {
-      throw new EnhancedRegistryError(
-        `Could not parse version information. The package may have an unexpected format.`,
-        'hackage',
-        packageName,
-        versionUrl
-      );
-    }
-    const latestVersion = versionMatch[1];
+    // Reuse the working version lookup. (The /preferred endpoint returns an HTML
+    // page, whose first quoted string is the DOCTYPE — not a version — which the
+    // old regex mistakenly returned as latestVersion.)
+    const latestVersion = await this.getLatestVersion(packageName);
 
     const infoResponse = await fetch(`${this.baseUrl}/package/${packageName}-${latestVersion}/${packageName}.cabal`, {
       headers: {

@@ -4,7 +4,7 @@
  * Test script for dependency file parsers
  */
 
-import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser } from './build/dependency-parsers.js';
+import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser } from './build/dependency-parsers.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -44,7 +44,7 @@ if (!existsSync(testDir)) {
 console.log('\n--- Parser Registry ---');
 
 test('PARSERS has all expected parsers', () => {
-  assert(PARSERS.length === 8, 'should have 8 parsers (incl. CsprojParser)');
+  assert(PARSERS.length === 11, 'should have 11 parsers (incl. Csproj/Composer/Pubspec/Conda)');
 });
 
 test('getParserForFile finds npm parser', () => {
@@ -495,6 +495,57 @@ test('CsprojParser parses PackageReference (attribute, child, and $(prop) forms)
   assert(foo && foo.version === undefined && foo.constraint === '$(FooVersion)',
     'MSBuild property version -> constraint kept, concrete version unset');
   assert(getParserForFile('MyApp.csproj')?.name === 'nuget', '*.csproj routes to the nuget parser');
+});
+
+test('ComposerParser parses require/require-dev and skips platform packages', () => {
+  const composer = JSON.stringify({
+    require: { php: '>=7.2', 'guzzlehttp/guzzle': '^7.0', 'ext-json': '*', 'psr/log': '1.1.4' },
+    'require-dev': { 'phpunit/phpunit': '9.5.0' },
+  });
+  const r = new ComposerParser().parse(composer, 'composer.json');
+  const names = r.dependencies.map((d) => d.name);
+  assert(!names.includes('php') && !names.includes('ext-json'), 'platform packages skipped');
+  assert(names.includes('guzzlehttp/guzzle'), 'vendor/package found');
+  const log = r.dependencies.find((d) => d.name === 'psr/log');
+  assert(log.version === '1.1.4' && log.registry === 'packagist', 'pinned version extracted + packagist registry');
+  const phpunit = r.dependencies.find((d) => d.name === 'phpunit/phpunit');
+  assert(phpunit.type === 'development', 'require-dev -> development');
+  assert(getParserForFile('composer.json')?.name === 'packagist', 'composer.json routes to packagist');
+});
+
+test('PubspecParser parses dependencies and skips sdk/flutter pseudo-deps', () => {
+  const pubspec = `name: app
+dependencies:
+  http: ^1.1.0
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  test: ^1.24.0
+`;
+  const r = new PubspecParser().parse(pubspec, 'pubspec.yaml');
+  const names = r.dependencies.map((d) => d.name);
+  assert(names.includes('http') && !names.includes('flutter') && !names.includes('sdk'),
+    `http found, flutter/sdk skipped, got ${JSON.stringify(names)}`);
+  const http = r.dependencies.find((d) => d.name === 'http');
+  assert(http.version === '1.1.0' && http.registry === 'pub.dev', 'caret version + pub.dev registry');
+  assert(r.dependencies.find((d) => d.name === 'test').type === 'development', 'dev_dependencies -> development');
+});
+
+test('CondaParser parses conda deps and attributes nested pip block to pypi', () => {
+  const env = `name: e
+dependencies:
+  - python>=3.8
+  - numpy=1.20
+  - pytest
+  - pip:
+    - requests==2.0
+`;
+  const r = new CondaParser().parse(env, 'environment.yml');
+  const numpy = r.dependencies.find((d) => d.name === 'numpy');
+  const requests = r.dependencies.find((d) => d.name === 'requests');
+  assert(numpy.version === '1.20' && numpy.registry === 'conda', 'conda = pin extracted');
+  assert(requests && requests.registry === 'pypi', 'nested pip dep attributed to pypi registry');
+  assert(getParserForFile('environment.yml')?.name === 'conda', 'environment.yml routes to conda');
 });
 
 // ============================================================================

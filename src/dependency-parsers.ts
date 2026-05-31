@@ -720,6 +720,177 @@ export class CsprojParser implements DependencyParser {
   }
 }
 
+// Shared: extract a single pinned version from a constraint string (handles
+// ^/~/=/v prefixes); returns undefined for ranges, unions, and tags.
+function extractPinnedVersion(constraint: string): string | undefined {
+  const m = constraint.trim().match(/^[\^~=v]*\s*(\d+(?:\.\d+){0,3}(?:[-+][0-9A-Za-z.-]+)?)$/);
+  return m ? m[1] : undefined;
+}
+
+// ============================================================================
+// PHP (composer.json)
+// ============================================================================
+
+export class ComposerParser implements DependencyParser {
+  name = 'packagist';
+  filePatterns = ['composer.json'];
+  registry = 'packagist';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const pkg = JSON.parse(content);
+      const sections: Array<[string, ParsedDependency['type']]> = [
+        ['require', 'production'],
+        ['require-dev', 'development'],
+      ];
+      for (const [section, type] of sections) {
+        const deps = pkg[section];
+        if (!deps || typeof deps !== 'object') continue;
+        for (const [name, raw] of Object.entries(deps)) {
+          // Skip platform requirements (php, ext-*, lib-*, composer-*) — not Packagist packages.
+          if (name === 'php' || /^(ext|lib|composer)-/.test(name) || name === 'composer-runtime-api') {
+            continue;
+          }
+          const constraint = String(raw);
+          result.dependencies.push({
+            name,
+            version: extractPinnedVersion(constraint),
+            constraint,
+            registry: this.registry,
+            type,
+            source: filePath,
+          });
+        }
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// Dart / Flutter (pubspec.yaml)
+// ============================================================================
+
+export class PubspecParser implements DependencyParser {
+  name = 'pub.dev';
+  filePatterns = ['pubspec.yaml', 'pubspec.yml'];
+  registry = 'pub.dev';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const lines = content.split('\n');
+      let type: ParsedDependency['type'] | null = null;
+
+      for (const raw of lines) {
+        const line = raw.replace(/#.*$/, '');
+        if (!line.trim()) continue;
+
+        // Top-level key resets the section.
+        if (/^[A-Za-z_]/.test(line)) {
+          const key = line.split(':')[0].trim();
+          type = key === 'dependencies' ? 'production' : key === 'dev_dependencies' ? 'development' : null;
+          continue;
+        }
+        if (!type) continue;
+
+        // A scalar dependency at 2-space indent: `  name: constraint`.
+        const m = line.match(/^  ([A-Za-z0-9_.]+):\s*(.*)$/);
+        if (!m) continue;
+        const name = m[1];
+        const value = m[2].trim().replace(/^["']|["']$/g, '');
+        // Empty value => a nested map (sdk/git/path dep), e.g. `flutter:` — skip.
+        if (!value || name === 'flutter' || name === 'sdk' || name === 'dart') continue;
+
+        result.dependencies.push({
+          name,
+          version: extractPinnedVersion(value),
+          constraint: value,
+          registry: this.registry,
+          type,
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// Conda (environment.yml)
+// ============================================================================
+
+export class CondaParser implements DependencyParser {
+  name = 'conda';
+  filePatterns = ['environment.yml', 'environment.yaml'];
+  registry = 'conda';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const lines = content.split('\n');
+      let inDeps = false;
+      let pipIndent = -1; // indent of a `- pip:` block; deeper items are PyPI deps
+
+      for (const raw of lines) {
+        const line = raw.replace(/#.*$/, '');
+        if (!line.trim()) continue;
+
+        if (/^[A-Za-z_]/.test(line)) {
+          inDeps = line.split(':')[0].trim() === 'dependencies';
+          pipIndent = -1;
+          continue;
+        }
+        if (!inDeps) continue;
+
+        const indent = line.length - line.trimStart().length;
+        const trimmed = line.trim();
+
+        // Enter / exit the nested `- pip:` block by indentation.
+        if (/^-\s*pip\s*:\s*$/.test(trimmed)) {
+          pipIndent = indent;
+          continue;
+        }
+        if (pipIndent >= 0 && indent <= pipIndent) pipIndent = -1;
+
+        const item = trimmed.match(/^-\s*(.+)$/);
+        if (!item) continue;
+        const spec = item[1].trim();
+        if (!spec || spec.endsWith(':')) continue; // nested map header
+
+        // conda specs: `numpy=1.20`, `python>=3.8`, `pytest`; pip specs: `pkg==1.0`.
+        const sm = spec.match(/^([A-Za-z0-9_.\-]+)\s*([=<>!~].*)?$/);
+        if (!sm) continue;
+        const constraint = sm[2] ? sm[2].trim() : undefined;
+        const isPip = pipIndent >= 0 && indent > pipIndent;
+
+        result.dependencies.push({
+          name: sm[1],
+          version: constraint ? extractPinnedVersion(constraint) : undefined,
+          constraint,
+          registry: isPip ? 'pypi' : this.registry,
+          type: 'production',
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const PARSERS: DependencyParser[] = [
   new NpmParser(),
   new PythonParser(),
@@ -729,6 +900,9 @@ export const PARSERS: DependencyParser[] = [
   new GemfileParser(),
   new PomParser(),
   new CsprojParser(),
+  new ComposerParser(),
+  new PubspecParser(),
+  new CondaParser(),
 ];
 
 /**
