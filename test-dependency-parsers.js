@@ -4,7 +4,7 @@
  * Test script for dependency file parsers
  */
 
-import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser, GradleVersionCatalogParser, RDescriptionParser, PipfileParser } from './build/dependency-parsers.js';
+import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser, GradleVersionCatalogParser, RDescriptionParser, PipfileParser, DenoJsonParser, CabalParser } from './build/dependency-parsers.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -44,7 +44,7 @@ if (!existsSync(testDir)) {
 console.log('\n--- Parser Registry ---');
 
 test('PARSERS has all expected parsers', () => {
-  assert(PARSERS.length === 14, 'should have 14 parsers (incl. GradleCatalog/RDescription/Pipfile)');
+  assert(PARSERS.length === 16, 'should have 16 parsers (incl. Deno/Cabal)');
 });
 
 test('getParserForFile finds npm parser', () => {
@@ -607,6 +607,37 @@ python_version = "3.11"
   assert(myst && myst.version === '1.0', 'inline-table version extracted');
   assert(!r.dependencies.some((d) => d.name === 'python_version'), 'python_version skipped');
   assert(r.dependencies.find((d) => d.name === 'sphinx').type === 'development', 'dev-packages -> development');
+});
+
+test('DenoJsonParser parses jsr:/npm: imports and skips URL imports', () => {
+  const deno = JSON.stringify({
+    imports: { '@std/assert': 'jsr:@std/assert@^1.0.19', ts: 'npm:typescript@5.8.2', url: 'https://deno.land/x/foo.ts' },
+  });
+  const r = new DenoJsonParser().parse(deno, 'deno.json');
+  const assert1 = r.dependencies.find((d) => d.name === '@std/assert');
+  const ts = r.dependencies.find((d) => d.name === 'typescript');
+  assert(assert1 && assert1.registry === 'jsr' && assert1.version === '1.0.19', 'scoped jsr import w/ version');
+  assert(ts && ts.registry === 'npm' && ts.version === '5.8.2', 'npm import mapped to npm registry');
+  assert(r.dependencies.length === 2, 'http(s) URL import skipped');
+  assert(getParserForFile('deno.json')?.name === 'jsr', 'deno.json routes to jsr parser');
+});
+
+test('CabalParser parses build-depends across continuation lines, keeps ranges', () => {
+  const cabal = `name: aeson
+library
+  build-depends:
+    , base >=4.12 && <5
+    , aeson
+    , text >= 1.0 || >= 2.0
+  default-language: Haskell2010
+`;
+  const r = new CabalParser().parse(cabal, 'aeson.cabal');
+  const names = r.dependencies.map((d) => d.name);
+  assert(names.includes('base') && names.includes('aeson') && names.includes('text'), 'deps found across leading-comma lines');
+  assert(!names.includes('default') && !names.includes('default-language'), 'new field ends the block');
+  const base = r.dependencies.find((d) => d.name === 'base');
+  assert(base.constraint === '>=4.12 && <5' && base.version === undefined, 'range kept as constraint, no false pin');
+  assert(getParserForFile('foo.cabal')?.name === 'hackage', '*.cabal routes to hackage parser');
 });
 
 // ============================================================================

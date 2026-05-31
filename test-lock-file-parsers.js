@@ -4,7 +4,7 @@
  * Test script for lock file parsers
  */
 
-import { parseLockFile, getLockParserForFile, LOCK_PARSERS, PnpmLockParser, NpmLockParser, ComposerLockParser, PubspecLockParser } from './build/lock-file-parsers.js';
+import { parseLockFile, getLockParserForFile, LOCK_PARSERS, PnpmLockParser, NpmLockParser, ComposerLockParser, PubspecLockParser, SwiftPackageResolvedParser, PodfileLockParser } from './build/lock-file-parsers.js';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -44,7 +44,7 @@ if (!existsSync(testDir)) {
 console.log('\n--- Parser Registry ---');
 
 test('LOCK_PARSERS has all expected parsers', () => {
-  assert(LOCK_PARSERS.length === 10, 'should have 10 parsers (incl. Composer/Pubspec locks)');
+  assert(LOCK_PARSERS.length === 12, 'should have 12 parsers (incl. Swift/Podfile locks)');
 });
 
 test('getLockParserForFile finds npm parser', () => {
@@ -484,6 +484,38 @@ packages:
   assert(r.dependencies[0].name === 'async' && r.dependencies[0].version === '2.13.1' && r.dependencies[0].registry === 'pub.dev',
     'hosted async@2.13.1 on pub.dev');
   assert(!r.dependencies.some((d) => d.name === 'somegit'), 'git-source dep skipped');
+});
+
+test('SwiftPackageResolvedParser parses pins, derives owner/repo, skips revision-only pins', () => {
+  const resolved = JSON.stringify({
+    pins: [
+      { identity: 'alamofire', location: 'https://github.com/Alamofire/Alamofire.git', state: { version: '5.9.1' } },
+      { identity: 'br', location: 'https://github.com/x/y', state: { revision: 'abc123' } },
+    ],
+    version: 3,
+  });
+  const r = new SwiftPackageResolvedParser().parse(resolved, 'Package.resolved');
+  assert(r.dependencies.length === 1, 'revision-only pin (no version) is skipped');
+  assert(r.dependencies[0].name === 'Alamofire/Alamofire' && r.dependencies[0].version === '5.9.1' && r.dependencies[0].registry === 'swift',
+    'owner/repo derived from github location + swift registry');
+  assert(getLockParserForFile('Package.resolved')?.name === 'swift', 'routes to swift lock parser');
+});
+
+test('PodfileLockParser collapses subspecs to root pods and dedups', () => {
+  const lock = `PODS:
+  - AFNetworking/NSURLSession (2.7.0):
+    - AFNetworking/Reachability
+  - AFNetworking/Reachability (2.7.0)
+  - SDWebImage (5.12.0)
+DEPENDENCIES:
+  - AFNetworking
+`;
+  const r = new PodfileLockParser().parse(lock, 'Podfile.lock');
+  const names = r.dependencies.map((d) => d.name);
+  assert(names.includes('AFNetworking') && names.includes('SDWebImage'), 'root pods found');
+  assert(names.filter((n) => n === 'AFNetworking').length === 1, 'subspecs collapsed + deduped to one AFNetworking');
+  assert(r.dependencies.find((d) => d.name === 'AFNetworking').version === '2.7.0', 'version captured');
+  assert(getLockParserForFile('Podfile.lock')?.name === 'cocoapods', 'routes to cocoapods lock parser');
 });
 
 // ============================================================================

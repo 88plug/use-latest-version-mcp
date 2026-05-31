@@ -654,6 +654,88 @@ export class PubspecLockParser implements LockFileParser {
   }
 }
 
+// ============================================================================
+// Swift Package Manager (Package.resolved)
+// ============================================================================
+
+export class SwiftPackageResolvedParser implements LockFileParser {
+  name = 'swift';
+  filePatterns = ['Package.resolved'];
+  registry = 'swift';
+
+  parse(content: string, filePath: string): LockParserResult {
+    const result: LockParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const data = JSON.parse(content);
+      const pins = data.pins || data.object?.pins || [];
+      for (const pin of pins) {
+        const version = pin?.state?.version;
+        if (!version) continue; // branch/revision pins have no semver
+        const loc = pin.location || pin.repositoryURL || '';
+        // Swift packages are identified to the registry as owner/repo (GitHub).
+        const gh = String(loc).match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?\/?$/i);
+        const name = gh ? gh[1] : pin.identity;
+        if (!name) continue;
+        result.dependencies.push({
+          name,
+          version: String(version),
+          registry: this.registry,
+          resolved: loc || undefined,
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// CocoaPods (Podfile.lock)
+// ============================================================================
+
+export class PodfileLockParser implements LockFileParser {
+  name = 'cocoapods';
+  filePatterns = ['Podfile.lock'];
+  registry = 'cocoapods';
+
+  parse(content: string, filePath: string): LockParserResult {
+    const result: LockParserResult = { dependencies: [], errors: [], warnings: [] };
+    const seen = new Set<string>();
+
+    try {
+      const lines = content.split('\n');
+      let inPods = false;
+      for (const raw of lines) {
+        if (/^PODS:\s*$/.test(raw)) { inPods = true; continue; }
+        if (inPods && /^\S/.test(raw)) { inPods = false; } // left the PODS: block
+        if (!inPods) continue;
+
+        // Top-level pod entries are at 2-space indent: `  - Name (version)[:]`.
+        // Nested per-pod dependencies are deeper-indented and skipped.
+        const m = raw.match(/^  -\s+([A-Za-z0-9_.+\-]+(?:\/[A-Za-z0-9_.+\-]+)*)\s+\(([^)]+)\)/);
+        if (!m) continue;
+        const root = m[1].split('/')[0]; // collapse subspecs (Pod/Subspec) to the root pod
+        if (seen.has(root)) continue;
+        seen.add(root);
+        result.dependencies.push({
+          name: root,
+          version: m[2].trim(),
+          registry: this.registry,
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const LOCK_PARSERS: LockFileParser[] = [
   new NpmLockParser(),
   new YarnLockParser(),
@@ -665,6 +747,8 @@ export const LOCK_PARSERS: LockFileParser[] = [
   new GemfileLockParser(),
   new ComposerLockParser(),
   new PubspecLockParser(),
+  new SwiftPackageResolvedParser(),
+  new PodfileLockParser(),
 ];
 
 /**

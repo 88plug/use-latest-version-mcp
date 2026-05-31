@@ -333,6 +333,14 @@ export class MavenRegistryClient implements RegistryClient {
 
   async getAvailableVersions(packageName: string): Promise<string[]> {
     const [groupId, artifactId] = this.parseCoordinates(packageName);
+
+    // androidx.*, com.android.*, and com.google.android.* artifacts are published
+    // ONLY to Google's Maven repo, not Maven Central (this covers most of an
+    // Android project's dependencies). Route those to Google Maven.
+    if (/^(androidx\.|com\.android\.|com\.google\.android\.)/.test(groupId)) {
+      return this.getGoogleMavenVersions(groupId, artifactId);
+    }
+
     // core=gav returns one doc per published version (field `v`).
     const url = `${this.baseUrl}?q=g:"${groupId}"+AND+a:"${artifactId}"&core=gav&rows=200&wt=json`;
     const response = await fetch(url);
@@ -365,6 +373,34 @@ export class MavenRegistryClient implements RegistryClient {
       latestVersion: await this.getLatestVersion(packageName),
       registry: 'maven'
     };
+  }
+
+  // Google's Maven repo (androidx, com.android.*, com.google.android.*) exposes a
+  // standard maven-metadata.xml listing every published version.
+  private async getGoogleMavenVersions(groupId: string, artifactId: string): Promise<string[]> {
+    const path = groupId.replace(/\./g, '/');
+    const url = `https://dl.google.com/dl/android/maven2/${path}/${artifactId}/maven-metadata.xml`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new EnhancedRegistryError(
+        `Artifact not found on Google Maven.`,
+        'maven',
+        `${groupId}:${artifactId}`,
+        url,
+        response.status
+      );
+    }
+    const text = await response.text();
+    const versions = [...text.matchAll(/<version>([^<]+)<\/version>/g)].map((m) => m[1].trim()).filter(Boolean);
+    if (versions.length === 0) {
+      throw new EnhancedRegistryError(
+        `No versions found for: ${groupId}:${artifactId}`,
+        'maven',
+        `${groupId}:${artifactId}`,
+        url
+      );
+    }
+    return versions;
   }
 
   // Maven prerelease/snapshot markers (case-insensitive): -alpha/-beta/-rc/-m/-cr,

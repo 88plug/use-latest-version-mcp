@@ -106,6 +106,9 @@ const DEPENDENCY_FILE_PATTERNS = [
   'libs.versions.toml',
   'DESCRIPTION',
   'Pipfile',
+  'deno.json',
+  'deno.jsonc',
+  '*.cabal',
 ];
 
 const LOCK_FILE_PATTERNS = [
@@ -119,6 +122,8 @@ const LOCK_FILE_PATTERNS = [
   'Gemfile.lock',
   'composer.lock',
   'pubspec.lock',
+  'Package.resolved',
+  'Podfile.lock',
 ];
 
 // ============================================================================

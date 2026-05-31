@@ -1091,6 +1091,128 @@ export class PipfileParser implements DependencyParser {
   }
 }
 
+// ============================================================================
+// Deno (deno.json / deno.jsonc)
+// ============================================================================
+
+export class DenoJsonParser implements DependencyParser {
+  name = 'jsr';
+  filePatterns = ['deno.json', 'deno.jsonc'];
+  registry = 'jsr';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      let data: any;
+      try {
+        data = JSON.parse(content);
+      } catch {
+        // deno.jsonc may carry comments — strip them and retry.
+        const cleaned = content
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/(^|[^:"'])\/\/.*$/gm, '$1');
+        data = JSON.parse(cleaned);
+      }
+      const imports = (data && data.imports) || {};
+      for (const raw of Object.values(imports)) {
+        const spec = String(raw);
+        let registry: string;
+        let body: string;
+        if (spec.startsWith('jsr:')) { registry = 'jsr'; body = spec.slice(4); }
+        else if (spec.startsWith('npm:')) { registry = 'npm'; body = spec.slice(4); }
+        else continue; // http(s):// or relative path imports have no registry version
+        // body is name@version with the name possibly scoped (@scope/name@ver).
+        const at = body.lastIndexOf('@');
+        if (at <= 0) continue;
+        const name = body.slice(0, at);
+        const constraint = body.slice(at + 1);
+        result.dependencies.push({
+          name,
+          version: extractPinnedVersion(constraint),
+          constraint,
+          registry,
+          type: 'production',
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// Haskell (*.cabal)
+// ============================================================================
+
+export class CabalParser implements DependencyParser {
+  name = 'hackage';
+  filePatterns = ['*.cabal'];
+  registry = 'hackage';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+    const seen = new Set<string>();
+
+    try {
+      const lines = content.split('\n');
+      let collecting = false;
+      let buf: string[] = [];
+
+      const flush = () => {
+        for (let entry of buf.join(' ').split(',')) {
+          entry = entry.trim();
+          if (!entry) continue;
+          const m = entry.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*(.*)$/);
+          if (!m) continue;
+          const key = m[1].toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const constraint = m[2].trim() || undefined;
+          result.dependencies.push({
+            name: m[1],
+            version: undefined, // cabal uses version RANGES, not pins
+            constraint,
+            registry: this.registry,
+            type: 'production',
+            source: filePath,
+          });
+        }
+        buf = [];
+        collecting = false;
+      };
+
+      for (const raw of lines) {
+        const line = raw.replace(/--.*$/, ''); // cabal line comments
+        const bd = line.match(/^\s*build-depends\s*:\s*(.*)$/i);
+        if (bd) {
+          if (collecting) flush();
+          collecting = true;
+          buf = bd[1].trim() ? [bd[1]] : [];
+          continue;
+        }
+        if (collecting) {
+          // Continuation = an indented line that is NOT a new field (deps contain
+          // no ':'); anything else ends the build-depends block.
+          if (/^\s+\S/.test(line) && !/^\s*[A-Za-z][A-Za-z0-9-]*\s*:/.test(line)) {
+            buf.push(line.trim());
+          } else {
+            flush();
+          }
+        }
+      }
+      flush();
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const PARSERS: DependencyParser[] = [
   new NpmParser(),
   new PythonParser(),
@@ -1106,6 +1228,8 @@ export const PARSERS: DependencyParser[] = [
   new GradleVersionCatalogParser(),
   new RDescriptionParser(),
   new PipfileParser(),
+  new DenoJsonParser(),
+  new CabalParser(),
 ];
 
 /**
