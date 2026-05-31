@@ -4,7 +4,7 @@
  * Test script for dependency file parsers
  */
 
-import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser } from './build/dependency-parsers.js';
+import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser } from './build/dependency-parsers.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -44,7 +44,7 @@ if (!existsSync(testDir)) {
 console.log('\n--- Parser Registry ---');
 
 test('PARSERS has all expected parsers', () => {
-  assert(PARSERS.length === 7, 'should have 7 parsers');
+  assert(PARSERS.length === 8, 'should have 8 parsers (incl. CsprojParser)');
 });
 
 test('getParserForFile finds npm parser', () => {
@@ -457,6 +457,44 @@ pytest = "^7.4.0"
   assert(requests.version === '2.28.0', `caret pin should extract 2.28.0, got ${requests.version}`);
   const pytest = r.dependencies.find((d) => d.name === 'pytest');
   assert(pytest && pytest.type === 'development', 'dev-dependencies entries should be type development');
+});
+
+test('CargoParser ignores target-specific dependency tables (no fake packages)', () => {
+  const toml = `[dependencies]
+serde = "1.0"
+tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Foundation"]
+
+[features]
+default = []
+`;
+  const r = new CargoParser().parse(toml, 'Cargo.toml');
+  const names = r.dependencies.map((d) => d.name);
+  assert(names.includes('serde') && names.includes('tokio'), 'real deps present');
+  assert(!names.some((n) => ['version', 'features', 'optional', 'default'].includes(n)),
+    `no bare-key fake packages, got ${JSON.stringify(names)}`);
+});
+
+test('CsprojParser parses PackageReference (attribute, child, and $(prop) forms)', () => {
+  const csproj = `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Serilog"><Version>3.1.1</Version></PackageReference>
+    <PackageReference Include="Foo.Bar" Version="$(FooVersion)" />
+  </ItemGroup>
+</Project>`;
+  const r = new CsprojParser().parse(csproj, 'app.csproj');
+  const json = r.dependencies.find((d) => d.name === 'Newtonsoft.Json');
+  const serilog = r.dependencies.find((d) => d.name === 'Serilog');
+  const foo = r.dependencies.find((d) => d.name === 'Foo.Bar');
+  assert(json && json.version === '13.0.3' && json.registry === 'nuget', 'attribute-form version + nuget registry');
+  assert(serilog && serilog.version === '3.1.1', 'child-element <Version> form');
+  assert(foo && foo.version === undefined && foo.constraint === '$(FooVersion)',
+    'MSBuild property version -> constraint kept, concrete version unset');
+  assert(getParserForFile('MyApp.csproj')?.name === 'nuget', '*.csproj routes to the nuget parser');
 });
 
 // ============================================================================

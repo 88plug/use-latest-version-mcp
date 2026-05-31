@@ -263,6 +263,13 @@ test('generateUpgradePath: prereleases excluded from intermediate hops', () => {
     `prerelease 2.0.0-rc.1 must not be a hop, got ${JSON.stringify(hops)}`);
 });
 
+test('parseSemVer/compareVersions: Cargo "=" exact-pin parses (not false-outdated)', () => {
+  const p = parseSemVer('=1.0.228');
+  assert(p !== null && p.major === 1 && p.minor === 0 && p.patch === 228, 'should parse =1.0.228');
+  assert(compareVersions('=1.0.228', '1.0.228') === 0, '=1.0.228 should equal 1.0.228, not compare as different');
+  assert(compareVersions('= 1.0.228', '1.0.228') === 0, '"= 1.0.228" (with space) should equal 1.0.228');
+});
+
 test('findCompatibleVersion: excludes prereleases from a normal range', () => {
   // ^4.17.0 must NOT resolve to 5.0.0-beta.x even though it sorts below 5.0.0.
   const available = ['4.17.0', '4.18.0', '4.18.2', '5.0.0-beta.3', '5.0.0'];

@@ -461,6 +461,26 @@ console.log('\n--- Cleanup ---');
 cleanup();
 
 // ============================================================================
+// Undefined option override (regression)
+// ============================================================================
+console.log('\n--- Undefined Option Override ---');
+
+const undefDir = join(testDir, 'undef-opt');
+mkdirSync(undefDir, { recursive: true });
+writeFileSync(join(undefDir, 'package.json'), JSON.stringify({ name: 'root', dependencies: { express: '^4.0.0' } }, null, 2));
+writeFileSync(join(undefDir, 'package-lock.json'), JSON.stringify({ name: 'root', lockfileVersion: 3, packages: { '': { name: 'root' }, 'node_modules/express': { version: '4.18.2' } } }, null, 2));
+
+test('explicit includeLockFiles:undefined does not disable lock scanning (default true)', () => {
+  const result = scanProject(undefDir, { includeLockFiles: undefined });
+  assert(result.summary.lockFiles >= 1, `lock files should still be scanned, got ${result.summary.lockFiles}`);
+});
+
+test('explicit maxDepth:undefined falls back to the default (not NaN/unbounded)', () => {
+  const result = scanProject(undefDir, { maxDepth: undefined });
+  assert(result.files.length >= 1, 'scan should still find the root files with undefined maxDepth');
+});
+
+// ============================================================================
 // Summary
 // ============================================================================
 console.log('\n=== Test Summary ===');

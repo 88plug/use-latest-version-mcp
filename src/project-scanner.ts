@@ -99,6 +99,7 @@ const DEPENDENCY_FILE_PATTERNS = [
   'Gemfile',
   'pom.xml',
   'pyproject.toml',
+  '*.csproj',
 ];
 
 const LOCK_FILE_PATTERNS = [
@@ -120,12 +121,20 @@ export class ProjectScanner {
   private options: ScanOptions;
 
   constructor(options: ScanOptions = {}) {
+    // Drop keys explicitly set to `undefined` so a caller that forwards an
+    // optional it didn't set (e.g. OutdatedChecker passing
+    // `includeLockFiles: this.options.includeLockFiles` when it's undefined, or
+    // the scan_project tool passing `maxDepth: undefined`) does not clobber the
+    // DEFAULT_SCAN_OPTIONS value.
+    const provided = Object.fromEntries(
+      Object.entries(options).filter(([, v]) => v !== undefined)
+    ) as ScanOptions;
     this.options = {
       ...DEFAULT_SCAN_OPTIONS,
-      ...options,
+      ...provided,
       // Merge exclude patterns instead of replacing
-      excludePatterns: options.excludePatterns
-        ? [...DEFAULT_SCAN_OPTIONS.excludePatterns!, ...options.excludePatterns]
+      excludePatterns: provided.excludePatterns
+        ? [...DEFAULT_SCAN_OPTIONS.excludePatterns!, ...provided.excludePatterns]
         : DEFAULT_SCAN_OPTIONS.excludePatterns,
     };
   }

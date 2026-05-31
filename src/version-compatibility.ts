@@ -82,8 +82,10 @@ export interface UpgradePath {
 
 // Parse semantic version
 export function parseSemVer(version: string): SemVer | null {
-  // Remove 'v' prefix if present
-  version = version.replace(/^v/, '');
+  // Strip a leading 'v' prefix or a Cargo-style exact-pin '=' (e.g. "=1.0.228",
+  // "= 1.0.228") so such version strings parse instead of falling back to a
+  // string compare (which made `=`-pinned Cargo deps look perpetually outdated).
+  version = version.replace(/^[v=]\s*/, '');
 
   // Handle non-semver versions (like 3.0rc1-2, scm-2, etc.)
   const semverRegex = /^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.-]+))?(?:\+([a-zA-Z0-9.-]+))?$/;

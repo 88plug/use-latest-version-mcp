@@ -468,7 +468,11 @@ export class CargoParser implements DependencyParser {
           inDependencies = false;
           continue;
         }
-        if (trimmed.startsWith('[') && !trimmed.includes('dependencies')) {
+        // Any other section header (incl. target-specific tables like
+        // [target.'cfg(windows)'.dependencies.windows-sys] or [dependencies.foo],
+        // and [features]/[package]) ends the simple [dependencies] block — otherwise
+        // bare keys like `version =`/`features =` get parsed as fake packages.
+        if (trimmed.startsWith('[')) {
           inDependencies = false;
           inDevDependencies = false;
           continue;
@@ -665,6 +669,57 @@ export class PomParser implements DependencyParser {
 // Parser Registry
 // ============================================================================
 
+// ============================================================================
+// .NET (*.csproj / Directory.Packages.props)
+// ============================================================================
+
+export class CsprojParser implements DependencyParser {
+  name = 'nuget';
+  filePatterns = ['*.csproj', '*.fsproj', '*.vbproj', 'Directory.Packages.props'];
+  registry = 'nuget';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      // Match <PackageReference .../> and <PackageReference ...>...</PackageReference>.
+      // Covers both `Version="x"` attribute and `<Version>x</Version>` child forms,
+      // and Include= (normal) / Update= (central package management).
+      const refRegex = /<PackageReference\b([^>]*?)(?:\/>|>([\s\S]*?)<\/PackageReference>)/gi;
+      let match;
+      while ((match = refRegex.exec(content)) !== null) {
+        const attrs = match[1] || '';
+        const inner = match[2] || '';
+
+        const nameMatch = attrs.match(/\b(?:Include|Update)\s*=\s*"([^"]+)"/i);
+        if (!nameMatch) continue;
+        const name = nameMatch[1].trim();
+
+        const versionAttr = attrs.match(/\bVersion\s*=\s*"([^"]*)"/i);
+        const versionChild = inner.match(/<Version>\s*([^<]*?)\s*<\/Version>/i);
+        const rawVersion = (versionAttr?.[1] ?? versionChild?.[1])?.trim();
+
+        // MSBuild property versions (e.g. "$(JsonVersion)") can't be resolved
+        // here, so keep them as the constraint but leave the concrete version unset.
+        const version = rawVersion && !rawVersion.includes('$(') ? rawVersion : undefined;
+
+        result.dependencies.push({
+          name,
+          version,
+          constraint: rawVersion || undefined,
+          registry: this.registry,
+          type: 'production',
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const PARSERS: DependencyParser[] = [
   new NpmParser(),
   new PythonParser(),
@@ -673,6 +728,7 @@ export const PARSERS: DependencyParser[] = [
   new CargoParser(),
   new GemfileParser(),
   new PomParser(),
+  new CsprojParser(),
 ];
 
 /**
