@@ -108,7 +108,9 @@ const DEPENDENCY_FILE_PATTERNS = [
   'Pipfile',
   'deno.json',
   'deno.jsonc',
+  'import_map.json',
   '*.cabal',
+  'mix.exs',
 ];
 
 const LOCK_FILE_PATTERNS = [

@@ -344,26 +344,28 @@ export class MavenRegistryClient implements RegistryClient {
     // core=gav returns one doc per published version (field `v`).
     const url = `${this.baseUrl}?q=g:"${groupId}"+AND+a:"${artifactId}"&core=gav&rows=200&wt=json`;
     const response = await fetch(url);
-    if (!response.ok) {
+    let docs: any[] = [];
+    if (response.ok) {
+      const data = await response.json() as any;
+      docs = data.response?.docs || [];
+    }
+    if (docs.length > 0) {
+      return docs.map((d: any) => d.v).filter((v: any): v is string => !!v);
+    }
+
+    // Not on Maven Central — fall back to Google Maven, which also hosts many
+    // com.google.* artifacts (firebase, gms, mlkit, ...) that aren't on Central.
+    try {
+      return await this.getGoogleMavenVersions(groupId, artifactId);
+    } catch {
       throw new EnhancedRegistryError(
-        `Failed to query Maven Central. Check network connection or try again later.`,
+        `Artifact not found on Maven Central or Google Maven. Verify the groupId:artifactId.`,
         'maven',
         packageName,
         url,
         response.status
       );
     }
-    const data = await response.json() as any;
-    const docs = data.response?.docs || [];
-    if (docs.length === 0) {
-      throw new EnhancedRegistryError(
-        `Artifact not found. Verify groupId:artifactId format is correct and exists on Maven Central.`,
-        'maven',
-        packageName,
-        url
-      );
-    }
-    return docs.map((d: any) => d.v).filter((v: any): v is string => !!v);
   }
 
   async getPackageInfo(packageName: string): Promise<PackageInfo> {
@@ -2593,6 +2595,54 @@ export class JenkinsPluginsRegistryClient implements RegistryClient {
   }
 }
 
+export class HexRegistryClient implements RegistryClient {
+  private baseUrl = 'https://hex.pm/api';
+
+  async getLatestVersion(packageName: string): Promise<string> {
+    const data = await this.fetchPackage(packageName);
+    const version = data.latest_stable_version || data.latest_version;
+    if (!version) {
+      throw new Error(`No versions found for: ${packageName}`);
+    }
+    return version;
+  }
+
+  async getPackageInfo(packageName: string): Promise<PackageInfo> {
+    const data = await this.fetchPackage(packageName);
+    return {
+      name: data.name || packageName,
+      latestVersion: data.latest_stable_version || data.latest_version,
+      description: data.meta?.description,
+      homepage: data.meta?.links?.GitHub || data.meta?.links?.Homepage || data.html_url,
+      registry: 'hex'
+    };
+  }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const data = await this.fetchPackage(packageName);
+    return Array.isArray(data.releases)
+      ? data.releases.map((r: any) => r.version).filter((v: any): v is string => !!v)
+      : [];
+  }
+
+  private async fetchPackage(packageName: string): Promise<any> {
+    const url = `${this.baseUrl}/packages/${packageName}`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'use-latest-version-mcp-server' }
+    });
+    if (!response.ok) {
+      throw new EnhancedRegistryError(
+        `Package not found. Verify the package name exists on Hex.`,
+        'hex',
+        packageName,
+        url,
+        response.status
+      );
+    }
+    return response.json() as any;
+  }
+}
+
 function createRegistryClient(registry: string): RegistryClient {
   switch (registry.toLowerCase()) {
     case 'npm':
@@ -2709,6 +2759,9 @@ function createRegistryClient(registry: string): RegistryClient {
     case 'bioconductor':
     case 'bioc':
       return new BioconductorRegistryClient();
+    case 'hex':
+    case 'elixir':
+      return new HexRegistryClient();
     default:
       throw new Error(`Unsupported registry: ${registry}`);
   }

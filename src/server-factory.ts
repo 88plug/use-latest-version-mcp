@@ -45,7 +45,7 @@ export const SUPPORTED_REGISTRIES = [
   'aur', 'snap', 'flatpak',
   'gradle', 'terraform', 'ansible',
   'vscode', 'wordpress', 'jenkins',
-  'jsr', 'conda', 'bioconductor'
+  'jsr', 'conda', 'bioconductor', 'hex'
 ];
 
 export function getInstallCommand(
@@ -172,6 +172,9 @@ export function getInstallCommand(
     case 'bioconductor':
     case 'bioc':
       return `BiocManager::install("${packageName}")  # Version ${version}`;
+    case 'hex':
+    case 'elixir':
+      return `# Add to mix.exs deps:\n{:${packageName}, "~> ${version}"}`;
     default:
       return `# Unsupported registry: ${registry}`;
   }

@@ -9,3 +9,6 @@ dist/
 # one-off dev/maintenance scripts (kept locally, not part of the package)
 fix_*.cjs
 update_*.cjs
+
+# Claude Code session/worktree scratch (ephemeral, never part of the package)
+.claude/

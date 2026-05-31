@@ -1097,7 +1097,7 @@ export class PipfileParser implements DependencyParser {
 
 export class DenoJsonParser implements DependencyParser {
   name = 'jsr';
-  filePatterns = ['deno.json', 'deno.jsonc'];
+  filePatterns = ['deno.json', 'deno.jsonc', 'import_map.json'];
   registry = 'jsr';
 
   parse(content: string, filePath: string): ParserResult {
@@ -1213,6 +1213,55 @@ export class CabalParser implements DependencyParser {
   }
 }
 
+// ============================================================================
+// Elixir (mix.exs)
+// ============================================================================
+
+export class MixExsParser implements DependencyParser {
+  name = 'hex';
+  filePatterns = ['mix.exs'];
+  registry = 'hex';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+    const seen = new Set<string>();
+
+    try {
+      // Dependency tuples in mix.exs look like `{:phoenix, "~> 1.7.0"}` —
+      // optionally followed by keyword options. Match each tuple's atom name
+      // and the remainder up to the closing brace.
+      const tupleRe = /\{\s*:([a-zA-Z_][a-zA-Z0-9_]*)\s*,([^}]*)\}/g;
+      let m: RegExpExecArray | null;
+      while ((m = tupleRe.exec(content)) !== null) {
+        const name = m[1];
+        const rest = m[2];
+        if (seen.has(name)) continue;
+
+        // Skip git/path/in-umbrella deps — they don't resolve against Hex.
+        if (/\b(git|github|path|in_umbrella)\s*:/.test(rest)) continue;
+
+        // The version requirement is the first string literal in the tuple.
+        const verMatch = rest.match(/"([^"]+)"/);
+        const constraint = verMatch ? verMatch[1].trim() : undefined;
+
+        seen.add(name);
+        result.dependencies.push({
+          name,
+          version: constraint ? extractPinnedVersion(constraint) : undefined,
+          constraint,
+          registry: this.registry,
+          type: 'production',
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const PARSERS: DependencyParser[] = [
   new NpmParser(),
   new PythonParser(),
@@ -1230,6 +1279,7 @@ export const PARSERS: DependencyParser[] = [
   new PipfileParser(),
   new DenoJsonParser(),
   new CabalParser(),
+  new MixExsParser(),
 ];
 
 /**

@@ -37,10 +37,11 @@ import('./build/registries.js').then(async (m) => {
     { name: 'BioconductorRegistryClient', client: new m.BioconductorRegistryClient(), test: 'BiocGenerics' },
     { name: 'VSCodeExtensionsRegistryClient', client: new m.VSCodeExtensionsRegistryClient(), test: 'ms-python.python' },
     { name: 'WordPressPluginRegistryClient', client: new m.WordPressPluginRegistryClient(), test: 'akismet' },
-    { name: 'JenkinsPluginsRegistryClient', client: new m.JenkinsPluginsRegistryClient(), test: 'git' }
+    { name: 'JenkinsPluginsRegistryClient', client: new m.JenkinsPluginsRegistryClient(), test: 'git' },
+    { name: 'HexRegistryClient', client: new m.HexRegistryClient(), test: 'phoenix' }
   ];
-  
-  console.log('Testing all 38 registry clients...\n');
+
+  console.log(`Testing all ${clients.length} registry clients...\n`);
   
   let passed = 0;
   let failed = 0;

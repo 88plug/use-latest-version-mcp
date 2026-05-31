@@ -4,7 +4,7 @@
  * Test script for dependency file parsers
  */
 
-import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser, GradleVersionCatalogParser, RDescriptionParser, PipfileParser, DenoJsonParser, CabalParser } from './build/dependency-parsers.js';
+import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser, GradleVersionCatalogParser, RDescriptionParser, PipfileParser, DenoJsonParser, CabalParser, MixExsParser } from './build/dependency-parsers.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -44,7 +44,7 @@ if (!existsSync(testDir)) {
 console.log('\n--- Parser Registry ---');
 
 test('PARSERS has all expected parsers', () => {
-  assert(PARSERS.length === 16, 'should have 16 parsers (incl. Deno/Cabal)');
+  assert(PARSERS.length === 17, 'should have 17 parsers (incl. Deno/Cabal/Mix)');
 });
 
 test('getParserForFile finds npm parser', () => {
@@ -638,6 +638,45 @@ library
   const base = r.dependencies.find((d) => d.name === 'base');
   assert(base.constraint === '>=4.12 && <5' && base.version === undefined, 'range kept as constraint, no false pin');
   assert(getParserForFile('foo.cabal')?.name === 'hackage', '*.cabal routes to hackage parser');
+});
+
+test('DenoJsonParser handles import_map.json and it routes correctly', () => {
+  const map = JSON.stringify({
+    imports: { '@std/fs': 'jsr:@std/fs@^1.0.0', react: 'npm:react@18.3.1' },
+  });
+  const r = new DenoJsonParser().parse(map, 'import_map.json');
+  const fs = r.dependencies.find((d) => d.name === '@std/fs');
+  const react = r.dependencies.find((d) => d.name === 'react');
+  assert(fs && fs.registry === 'jsr' && fs.version === '1.0.0', 'jsr import from import_map');
+  assert(react && react.registry === 'npm' && react.version === '18.3.1', 'npm import from import_map');
+  assert(getParserForFile('import_map.json')?.name === 'jsr', 'import_map.json routes to jsr parser');
+});
+
+test('MixExsParser parses hex deps, keeps ranges, skips git/path deps', () => {
+  const mix = `defmodule MyApp.MixProject do
+  use Mix.Project
+
+  defp deps do
+    [
+      {:phoenix, "~> 1.7.0"},
+      {:ecto_sql, "== 3.10.1"},
+      {:plug_cowboy, "~> 2.5", only: :dev},
+      {:my_fork, git: "https://github.com/me/my_fork.git", tag: "v1.0"},
+      {:local_dep, path: "../local_dep"}
+    ]
+  end
+end
+`;
+  const r = new MixExsParser().parse(mix, 'mix.exs');
+  const names = r.dependencies.map((d) => d.name);
+  assert(names.includes('phoenix') && names.includes('ecto_sql') && names.includes('plug_cowboy'), 'hex deps found');
+  assert(!names.includes('my_fork') && !names.includes('local_dep'), 'git/path deps skipped');
+  const phoenix = r.dependencies.find((d) => d.name === 'phoenix');
+  assert(phoenix.constraint === '~> 1.7.0' && phoenix.version === undefined, 'range kept as constraint, no false pin');
+  const ecto = r.dependencies.find((d) => d.name === 'ecto_sql');
+  assert(ecto.version === '3.10.1', 'exact == pin extracted as version');
+  assert(r.dependencies.every((d) => d.registry === 'hex'), 'all deps registry=hex');
+  assert(getParserForFile('mix.exs')?.name === 'hex', 'mix.exs routes to hex parser');
 });
 
 // ============================================================================
