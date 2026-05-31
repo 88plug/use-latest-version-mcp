@@ -99,7 +99,13 @@ export class CircuitBreaker {
     this.halfOpenMaxCalls = halfOpenMaxCalls;
   }
 
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * Run `fn` under the breaker. `isFailure` lets the caller classify which
+   * errors count against the breaker: an error for which it returns false (e.g.
+   * a 404 "not found" — the upstream answered, so it is healthy) is treated as a
+   * success and does not trip the breaker. Defaults to "every error is a failure".
+   */
+  async execute<T>(fn: () => Promise<T>, isFailure?: (error: unknown) => boolean): Promise<T> {
     if (this.state === 'open') {
       if (Date.now() - this.lastFailureTime > this.recoveryTimeout) {
         this.state = 'half-open';
@@ -114,7 +120,12 @@ export class CircuitBreaker {
       this.onSuccess();
       return result;
     } catch (error) {
-      this.onFailure();
+      if (isFailure && !isFailure(error)) {
+        // Not an infrastructure failure (the upstream responded) — don't penalize.
+        this.onSuccess();
+      } else {
+        this.onFailure();
+      }
       throw error;
     }
   }

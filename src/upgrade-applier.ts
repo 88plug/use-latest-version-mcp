@@ -496,9 +496,17 @@ export class UpgradeApplier {
   private detectAndApplyChanges(
     content: string,
     changes: OptimizationPlan[],
-    _filePath: string
+    filePath: string
   ): string {
-    // Try JSON first
+    // Dispatch by file extension first — content-sniffing mis-classifies, e.g. a
+    // requirements.txt line like `foo[extra]` contains '[' and ']' and was being
+    // treated as TOML.
+    const ext = this.getFileExtension(filePath).toLowerCase();
+    if (ext === 'json') return this.applyJsonChanges(content, changes);
+    if (ext === 'toml') return this.applyTomlChanges(content, changes);
+    if (ext === 'txt') return this.applyTxtChanges(content, changes);
+
+    // Unknown extension: fall back to content heuristics.
     if (content.trim().startsWith('{')) {
       try {
         JSON.parse(content);
@@ -507,13 +515,9 @@ export class UpgradeApplier {
         // Not JSON
       }
     }
-
-    // Try TOML
     if (content.includes('[') && content.includes(']')) {
       return this.applyTomlChanges(content, changes);
     }
-
-    // Default to text
     return this.applyTxtChanges(content, changes);
   }
 

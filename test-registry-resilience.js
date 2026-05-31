@@ -7,7 +7,8 @@
  * live smoke check (REGISTRY_TIMEOUT_MS=1 aborts a real request).
  */
 
-import { CachingRegistryClient, pickLatestStable } from './build/registries.js';
+import { CachingRegistryClient, pickLatestStable, isInfraFailure, EnhancedRegistryError } from './build/registries.js';
+import { CircuitBreaker } from './build/utils.js';
 
 let passed = 0;
 let failed = 0;
@@ -137,6 +138,41 @@ await test('CachingRegistryClient omits getAvailableVersions when inner lacks it
   const cached = new CachingRegistryClient(inner, 'res-test-noversions');
   assert(cached.getAvailableVersions === undefined,
     'feature-detection: method must be absent when the inner client cannot list versions');
+});
+
+await test('isInfraFailure: 4xx / not-found are NOT infra failures; timeout / 5xx are', async () => {
+  assert(isInfraFailure(new EnhancedRegistryError('Package not found', 'npm', 'x', 'u', 404)) === false,
+    '404 should not count as infra failure');
+  assert(isInfraFailure(new Error('Package not found: foo')) === false,
+    'plain not-found message should not count');
+  assert(isInfraFailure(new EnhancedRegistryError('server error', 'npm', 'x', 'u', 503)) === true,
+    '503 should count as infra failure');
+  assert(isInfraFailure(new Error('Registry request timed out after 15000ms')) === true,
+    'timeout should count as infra failure');
+});
+
+await test('CircuitBreaker trips on infra failures after the threshold', async () => {
+  const cb = new CircuitBreaker(3, 60000);
+  const infra = () => Promise.reject(new Error('Registry request timed out'));
+  for (let i = 0; i < 3; i++) {
+    try { await cb.execute(infra, isInfraFailure); } catch {}
+  }
+  let opened = false;
+  try { await cb.execute(() => Promise.resolve('ok'), isInfraFailure); }
+  catch (e) { opened = /OPEN/.test(e.message); }
+  assert(opened, 'breaker should be OPEN after 3 infra failures');
+});
+
+await test('CircuitBreaker does NOT trip on client errors (404/not-found)', async () => {
+  const cb = new CircuitBreaker(3, 60000);
+  const notFound = () => Promise.reject(new Error('Package not found: ghost'));
+  // Far more than the threshold — none should count.
+  for (let i = 0; i < 10; i++) {
+    try { await cb.execute(notFound, isInfraFailure); } catch {}
+  }
+  // Breaker must still be closed: a real call goes through (not blocked as OPEN).
+  const v = await cb.execute(() => Promise.resolve('reached'), isInfraFailure);
+  assert(v === 'reached', 'breaker must stay closed despite many not-found errors');
 });
 
 console.log(`\n=== Test Summary ===`);

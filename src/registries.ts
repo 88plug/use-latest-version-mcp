@@ -1,5 +1,5 @@
 import nodeFetch from 'node-fetch';
-import { packageCache, getCacheKey } from './utils.js';
+import { packageCache, getCacheKey, getCircuitBreaker } from './utils.js';
 
 // Registry HTTP calls must never hang forever in production, so every request is
 // wrapped with an AbortController timeout. Configurable via REGISTRY_TIMEOUT_MS.
@@ -117,10 +117,30 @@ export interface RegistryClient {
 const REGISTRY_CACHE_TTL_MS = parseInt(process.env.REGISTRY_CACHE_TTL_MS || '300000', 10);
 
 /**
+ * Classify a registry error for the circuit breaker. A 4xx (including a 404
+ * "package not found") means the registry RESPONDED and is healthy, so it must
+ * not trip the breaker. Only timeouts, 5xx, and network/parse errors count as
+ * infrastructure failures worth tripping on.
+ */
+export function isInfraFailure(error: unknown): boolean {
+  if (error instanceof EnhancedRegistryError) {
+    if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
+      return false;
+    }
+  }
+  if (error instanceof Error && /not found|no versions found/i.test(error.message)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Wraps a RegistryClient with response caching so repeated lookups (batch checks,
  * project scans, multiple tools touching the same package) don't hammer the
- * registry. Only successful results are cached; errors propagate uncached so a
- * transient failure or a not-found is never memoized.
+ * registry, and a per-registry circuit breaker so a registry that is actually
+ * down fails fast instead of timing out on every call. Only successful results
+ * are cached; errors propagate uncached so a transient failure or a not-found is
+ * never memoized, and client errors (404) never trip the breaker.
  */
 export class CachingRegistryClient implements RegistryClient {
   // Only present when the wrapped client supports version listing (assigned in
@@ -138,7 +158,10 @@ export class CachingRegistryClient implements RegistryClient {
           const cached = packageCache.get(key);
           if (cached !== null) return cached as string[];
         }
-        const value = await inner.getAvailableVersions!(packageName);
+        const value = await getCircuitBreaker(this.registry).execute(
+          () => inner.getAvailableVersions!(packageName),
+          isInfraFailure
+        );
         if (REGISTRY_CACHE_TTL_MS > 0) packageCache.set(key, value, REGISTRY_CACHE_TTL_MS);
         return value;
       };
@@ -151,7 +174,10 @@ export class CachingRegistryClient implements RegistryClient {
       const cached = packageCache.get(key);
       if (cached !== null) return cached as string;
     }
-    const value = await this.inner.getLatestVersion(packageName);
+    const value = await getCircuitBreaker(this.registry).execute(
+      () => this.inner.getLatestVersion(packageName),
+      isInfraFailure
+    );
     if (REGISTRY_CACHE_TTL_MS > 0) packageCache.set(key, value, REGISTRY_CACHE_TTL_MS);
     return value;
   }
@@ -162,7 +188,10 @@ export class CachingRegistryClient implements RegistryClient {
       const cached = packageCache.get(key);
       if (cached !== null) return cached as PackageInfo;
     }
-    const value = await this.inner.getPackageInfo(packageName);
+    const value = await getCircuitBreaker(this.registry).execute(
+      () => this.inner.getPackageInfo(packageName),
+      isInfraFailure
+    );
     if (REGISTRY_CACHE_TTL_MS > 0) packageCache.set(key, value, REGISTRY_CACHE_TTL_MS);
     return value;
   }

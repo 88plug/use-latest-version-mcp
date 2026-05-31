@@ -88,6 +88,21 @@ await test('applySingleUpgrade surfaces real failures instead of fake success (U
   assert(result.summary.packagesUpgraded === 0, 'must not claim a package was upgraded when it failed');
 });
 
+await test('applier routes requirements.txt by extension, not content (UA-4)', async () => {
+  // Contains '[' / ']' (extras) which content-sniffing wrongly read as TOML.
+  writeFileSync(
+    join(TEST_DIR, 'requirements.txt'),
+    'requests[security]==2.28.0\nflask==2.0.0\n'
+  );
+  const result = await applySingleUpgrade(TEST_DIR, 'requirements.txt', 'flask', '3.0.0', {
+    dryRun: true,
+    createBackup: false,
+  });
+  // Correct txt routing yields exactly one change; TOML routing would yield zero.
+  assert(result.errors.length === 0, `no errors, got ${JSON.stringify(result.errors)}`);
+  assert(result.summary.totalChanges === 1, `expected 1 change via txt routing, got ${result.summary.totalChanges}`);
+});
+
 await test('UpgradeValidator does not flag a minor bump as breaking (UV-1)', async () => {
   const validator = new UpgradeValidator({ projectPath: TEST_DIR });
   const plan = [
