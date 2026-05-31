@@ -72,6 +72,9 @@ export interface OptimizationResult {
 
 export class GlobalVersionOptimizer {
   private options: OptimizationOptions;
+  // Warnings collected during an optimize() run (e.g. unreachable registries) so
+  // failures surface in the result instead of being swallowed.
+  private warnings: string[] = [];
 
   constructor(options: OptimizationOptions) {
     this.options = {
@@ -90,6 +93,7 @@ export class GlobalVersionOptimizer {
    * Optimize versions across the entire project
    */
   async optimize(): Promise<OptimizationResult> {
+    this.warnings = [];
     const result: OptimizationResult = {
       projectPath: this.options.projectPath,
       optimizedAt: new Date(),
@@ -180,6 +184,8 @@ export class GlobalVersionOptimizer {
     result.summary.highRiskChanges = plans.filter((p) => p.risk === 'high').length;
     result.summary.mediumRiskChanges = plans.filter((p) => p.risk === 'medium').length;
     result.summary.lowRiskChanges = plans.filter((p) => p.risk === 'low').length;
+
+    result.warnings.push(...this.warnings);
 
     return result;
   }
@@ -403,6 +409,10 @@ export class GlobalVersionOptimizer {
         timeoutPromise,
       ]);
     } catch (error) {
+      // Degrade gracefully but record the failure instead of hiding it.
+      this.warnings.push(
+        `Could not fetch latest version for ${packageName} on ${registry}: ${error instanceof Error ? error.message : String(error)}`
+      );
       return '';
     }
   }

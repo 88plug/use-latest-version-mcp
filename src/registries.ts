@@ -105,6 +105,12 @@ export interface PackageInfo {
 export interface RegistryClient {
   getLatestVersion(packageName: string): Promise<string>;
   getPackageInfo(packageName: string): Promise<PackageInfo>;
+  /**
+   * Optional: list every published version of a package. Only registries with a
+   * natural version-list endpoint implement this; callers must feature-detect it
+   * and fall back to the latest version when it is absent.
+   */
+  getAvailableVersions?(packageName: string): Promise<string[]>;
 }
 
 // Cache TTL for registry lookups; set REGISTRY_CACHE_TTL_MS=0 to disable caching.
@@ -117,10 +123,27 @@ const REGISTRY_CACHE_TTL_MS = parseInt(process.env.REGISTRY_CACHE_TTL_MS || '300
  * transient failure or a not-found is never memoized.
  */
 export class CachingRegistryClient implements RegistryClient {
+  // Only present when the wrapped client supports version listing (assigned in
+  // the constructor) so callers can feature-detect support through the decorator.
+  getAvailableVersions?: (packageName: string) => Promise<string[]>;
+
   constructor(
     private readonly inner: RegistryClient,
     private readonly registry: string
-  ) {}
+  ) {
+    if (inner.getAvailableVersions) {
+      this.getAvailableVersions = async (packageName: string): Promise<string[]> => {
+        const key = getCacheKey(this.registry, packageName, 'versions');
+        if (REGISTRY_CACHE_TTL_MS > 0) {
+          const cached = packageCache.get(key);
+          if (cached !== null) return cached as string[];
+        }
+        const value = await inner.getAvailableVersions!(packageName);
+        if (REGISTRY_CACHE_TTL_MS > 0) packageCache.set(key, value, REGISTRY_CACHE_TTL_MS);
+        return value;
+      };
+    }
+  }
 
   async getLatestVersion(packageName: string): Promise<string> {
     const key = getCacheKey(this.registry, packageName, 'version');
@@ -187,6 +210,22 @@ export class NpmRegistryClient implements RegistryClient {
       registry: 'npm'
     };
   }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const url = `${this.baseUrl}/${packageName}`;
+    const response = await retryWithBackoff(() => fetch(url));
+    if (!response.ok) {
+      throw new EnhancedRegistryError(
+        `Package not found. Verify the package name exists on npm registry.`,
+        'npm',
+        packageName,
+        url,
+        response.status
+      );
+    }
+    const data = await response.json() as any;
+    return data.versions ? Object.keys(data.versions) : [];
+  }
 }
 
 export class PyPIRegistryClient implements RegistryClient {
@@ -229,6 +268,22 @@ export class PyPIRegistryClient implements RegistryClient {
       homepage: data.info.home_page || data.info.project_url,
       registry: 'pypi'
     };
+  }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const url = `${this.baseUrl}/${packageName}/json`;
+    const response = await retryWithBackoff(() => fetch(url));
+    if (!response.ok) {
+      throw new EnhancedRegistryError(
+        `Package not found. Check if the package name is correct and available on PyPI.`,
+        'pypi',
+        packageName,
+        url,
+        response.status
+      );
+    }
+    const data = await response.json() as any;
+    return data.releases ? Object.keys(data.releases) : [];
   }
 }
 
@@ -335,6 +390,21 @@ export class CratesIORegistryClient implements RegistryClient {
       registry: 'crates.io'
     };
   }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/crates/${packageName}`, {
+      headers: {
+        'User-Agent': 'use-latest-version-mcp-server'
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`Package not found: ${packageName}`);
+    }
+    const data = await response.json() as any;
+    return Array.isArray(data.versions)
+      ? data.versions.map((v: any) => v.num).filter((n: any): n is string => !!n)
+      : [];
+  }
 }
 
 export class RubyGemsRegistryClient implements RegistryClient {
@@ -364,6 +434,17 @@ export class RubyGemsRegistryClient implements RegistryClient {
       registry: 'rubygems'
     };
   }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/versions/${packageName}.json`);
+    if (!response.ok) {
+      throw new Error(`Package not found: ${packageName}`);
+    }
+    const data = await response.json() as any;
+    return Array.isArray(data)
+      ? data.map((v: any) => v.number).filter((n: any): n is string => !!n)
+      : [];
+  }
 }
 
 export class GoModulesRegistryClient implements RegistryClient {
@@ -391,6 +472,15 @@ export class GoModulesRegistryClient implements RegistryClient {
       publishedAt: data.Time,
       registry: 'go'
     };
+  }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/${packageName}/@v/list`);
+    if (!response.ok) {
+      throw new Error(`Package not found: ${packageName}`);
+    }
+    const text = await response.text();
+    return text.split('\n').map((s) => s.trim()).filter(Boolean);
   }
 }
 
@@ -1155,6 +1245,19 @@ export class NuGetRegistryClient implements RegistryClient {
       homepage,
       registry: 'nuget'
     };
+  }
+
+  async getAvailableVersions(packageName: string): Promise<string[]> {
+    const response = await retryWithBackoff(() => fetch(`${this.baseUrl}/v3-flatcontainer/${packageName.toLowerCase()}/index.json`, {
+      headers: {
+        'User-Agent': 'use-latest-version-mcp-server'
+      }
+    }));
+    if (!response.ok) {
+      throw new Error(`Package not found: ${packageName}`);
+    }
+    const data = await response.json() as any;
+    return Array.isArray(data.versions) ? data.versions : [];
   }
 }
 

@@ -342,26 +342,71 @@ export function calculateUpgradeRisk(fromVersion: string, toVersion: string): 'l
   return 'low';
 }
 
-// Generate upgrade path recommendation
+// Generate upgrade path recommendation.
+// When `availableVersions` is supplied (from a registry that can list them), a
+// forward upgrade that crosses major versions is broken into steps that land on
+// the highest available stable release at each intermediate major boundary, then
+// on the requested target — the standard "step through the majors" strategy.
+// Without it (or for a same-major bump) a single direct step is produced.
 export function generateUpgradePath(
   packageName: string,
   registry: string,
   currentVersion: string,
   targetVersion: string,
-  dependencies: Dependency[]
+  dependencies: Dependency[],
+  availableVersions?: string[]
 ): UpgradePath {
   const steps: UpgradeStep[] = [];
+  const from = parseSemVer(currentVersion);
+  const to = parseSemVer(targetVersion);
 
-  // For now, generate a direct upgrade path
-  // In a full implementation, we would fetch available versions from the registry
-  steps.push({
-    package: packageName,
-    registry,
-    fromVersion: currentVersion,
-    toVersion: targetVersion,
-    breakingChanges: getBreakingChanges(currentVersion, targetVersion),
-    notes: dependencies.length > 0 ? `Must maintain compatibility with ${dependencies.length} dependencies` : undefined,
-  });
+  if (
+    availableVersions &&
+    availableVersions.length > 0 &&
+    from &&
+    to &&
+    compareVersions(currentVersion, targetVersion) < 0
+  ) {
+    // Stable releases strictly above current and at/below target, ascending.
+    const candidates = availableVersions
+      .filter((v) => !v.includes('-'))
+      .filter((v) => compareVersions(v, currentVersion) > 0 && compareVersions(v, targetVersion) <= 0)
+      .sort((a, b) => compareVersions(a, b));
+
+    const milestones: string[] = [];
+    for (let major = from.major + 1; major < to.major; major++) {
+      const inMajor = candidates.filter((v) => parseSemVer(v)?.major === major);
+      if (inMajor.length > 0) {
+        milestones.push(inMajor[inMajor.length - 1]); // highest stable in this major
+      }
+    }
+    milestones.push(targetVersion); // always finish on the requested target
+
+    let prev = currentVersion;
+    for (const m of milestones) {
+      if (m === prev) continue;
+      steps.push({
+        package: packageName,
+        registry,
+        fromVersion: prev,
+        toVersion: m,
+        breakingChanges: getBreakingChanges(prev, m),
+      });
+      prev = m;
+    }
+  }
+
+  // Fallback / same-major: a single direct step.
+  if (steps.length === 0) {
+    steps.push({
+      package: packageName,
+      registry,
+      fromVersion: currentVersion,
+      toVersion: targetVersion,
+      breakingChanges: getBreakingChanges(currentVersion, targetVersion),
+      notes: dependencies.length > 0 ? `Must maintain compatibility with ${dependencies.length} dependencies` : undefined,
+    });
+  }
 
   const totalBreakingChanges = steps.reduce((sum, step) => sum + (step.breakingChanges?.length || 0), 0);
 
@@ -423,8 +468,12 @@ export function findCompatibleVersion(
   availableVersions: string[],
   constraints: VersionConstraint[]
 ): string | null {
+  // Exclude prereleases by default (matches npm/semver maxSatisfying): a normal
+  // range like ^4.17.0 must not resolve to 5.0.0-beta.x just because the
+  // prerelease sorts below the 5.0.0 upper bound.
+  const stable = availableVersions.filter((v) => !v.includes('-'));
   // Sort versions in descending order (newest first)
-  const sortedVersions = [...availableVersions].sort((a, b) => compareVersions(b, a));
+  const sortedVersions = stable.sort((a, b) => compareVersions(b, a));
 
   for (const version of sortedVersions) {
     const satisfiesAll = constraints.every(constraint => satisfiesConstraint(version, constraint));

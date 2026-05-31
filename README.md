@@ -245,13 +245,15 @@ Generate a step-by-step upgrade path from current version to target version.
 
 ### 9. find_compatible_version
 
-Find a version of a package that satisfies all specified dependency constraints.
+Find the highest published version of a package that satisfies all specified
+version constraints. For registries that can enumerate versions (npm, PyPI,
+crates.io, NuGet, Go, RubyGems) every published version is checked; for others
+only the latest version is checked and the response says so.
 
 **Parameters:**
 - `package_name` (string): The package name
 - `registry` (string): The package registry
 - `constraints` (array): List of version constraints to satisfy
-- `max_risk` (string, optional): Maximum acceptable upgrade risk (low/medium/high)
 
 **Example:**
 ```json
@@ -259,10 +261,42 @@ Find a version of a package that satisfies all specified dependency constraints.
   "package_name": "express",
   "registry": "npm",
   "constraints": [
-    {"name": "node", "constraint": ">=14.0.0"}
-  ],
-  "max_risk": "medium"
+    {"name": "express", "constraint": "^4.17.0"}
+  ]
 }
+```
+
+### 10. scan_project
+
+Scan a local project directory for dependency manifests (`package.json`,
+`requirements.txt`, `go.mod`, `Cargo.toml`, `Gemfile`, `pom.xml`,
+`pyproject.toml`) and lock files, returning every declared dependency with its
+registry, version/constraint, and source file.
+
+**Parameters:**
+- `project_path` (string): Absolute path to the project directory
+- `include_lock_files` (boolean, optional): Also parse lock files (default: true)
+- `max_depth` (number, optional): Maximum directory recursion depth (default: 10)
+
+**Example:**
+```json
+{ "project_path": "/path/to/project", "include_lock_files": true }
+```
+
+### 11. check_outdated
+
+Scan a local project and check every dependency against its registry, reporting
+which packages are outdated along with the latest version, upgrade type
+(major/minor/patch), and estimated risk.
+
+**Parameters:**
+- `project_path` (string): Absolute path to the project directory
+- `include_dev` (boolean, optional): Include development dependencies (default: true)
+- `include_lock_files` (boolean, optional): Use lock-file versions when available (default: true)
+
+**Example:**
+```json
+{ "project_path": "/path/to/project", "include_dev": true }
 ```
 
 ## How It Helps LLMs
@@ -310,6 +344,21 @@ Be aware of rate limits for public APIs:
 - **DockerHub**: 100 pulls per 6 hours (unauthenticated)
 
 For GitHub, you can set a `GITHUB_TOKEN` environment variable for higher rate limits.
+
+## Environment Variables
+
+All optional, with safe defaults.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP server port (`http` transport). |
+| `HOST` | `0.0.0.0` | HTTP bind address. Set `127.0.0.1` for local-only. |
+| `ALLOWED_ORIGINS` | _(unset = all)_ | Comma-separated CORS allow-list. When set, only these origins are permitted. |
+| `MAX_SESSIONS` | `1000` | Maximum concurrent HTTP/MCP sessions before new ones are refused. |
+| `TRUST_PROXY` | _(unset)_ | Set when running behind a reverse proxy so rate limiting keys on the real client IP (`1`, `true`, or a hop count). |
+| `REGISTRY_TIMEOUT_MS` | `15000` | Per-request timeout for registry HTTP calls. |
+| `REGISTRY_CACHE_TTL_MS` | `300000` | TTL for cached registry lookups. Set `0` to disable caching. |
+| `GITHUB_TOKEN` | _(unset)_ | GitHub token for higher API rate limits. |
 
 ## Contributing
 

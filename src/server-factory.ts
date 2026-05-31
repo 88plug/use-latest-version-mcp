@@ -25,7 +25,7 @@ import {
   generateUpgradePath,
   getBreakingChanges,
   calculateUpgradeRisk,
-  suggestSafeUpgrade,
+  findCompatibleVersion,
   type Dependency,
 } from './version-compatibility.js';
 import { scanProject } from './project-scanner.js';
@@ -433,12 +433,6 @@ const TOOL_DEFINITIONS = [
             required: ['name', 'constraint'],
           },
           description: 'List of version constraints to satisfy',
-        },
-        max_risk: {
-          type: 'string',
-          enum: ['low', 'medium', 'high'],
-          description: 'Maximum acceptable upgrade risk (default: medium)',
-          default: 'medium',
         },
       },
       required: ['package_name', 'registry', 'constraints'],
@@ -920,12 +914,24 @@ Please try again or use a different registry.`,
             source: 'user-specified',
           }));
 
+          // Use the registry's full version list (when available) to build a
+          // real multi-step path through intermediate majors.
+          let availableVersions: string[] | undefined;
+          if (client.getAvailableVersions) {
+            try {
+              availableVersions = await client.getAvailableVersions(package_name);
+            } catch {
+              availableVersions = undefined; // fall back to a single direct step
+            }
+          }
+
           const upgradePath = generateUpgradePath(
             package_name,
             registry,
             current_version,
             target,
-            deps
+            deps,
+            availableVersions
           );
 
           const risk = calculateUpgradeRisk(current_version, target);
@@ -938,46 +944,59 @@ Please try again or use a different registry.`,
             targetVersion: target,
             risk,
             breakingChanges,
+            versionsConsidered: availableVersions ? availableVersions.length : 0,
             upgradePath,
             installCommand: getInstallCommand(package_name, registry, target),
           });
         }
 
         case 'find_compatible_version': {
-          const { package_name, registry, constraints, max_risk } = args as {
+          const { package_name, registry, constraints } = args as {
             package_name: string;
             registry: string;
             constraints: Array<{ name: string; constraint: string }>;
-            max_risk?: 'low' | 'medium' | 'high';
           };
 
           const client = getRegistryClient(registry);
-          const packageInfo = await client.getPackageInfo(package_name);
-          const currentVersion = packageInfo.latestVersion;
+          const versionConstraints = constraints.map((c) => parseConstraint(c.constraint));
 
-          const deps: Dependency[] = constraints.map((c) => ({
-            name: c.name,
-            constraint: parseConstraint(c.constraint),
-            source: 'constraint',
-          }));
+          // Prefer the registry's full version list so we can pick the HIGHEST
+          // published version that satisfies every constraint.
+          let availableVersions: string[] = [];
+          if (client.getAvailableVersions) {
+            availableVersions = await client.getAvailableVersions(package_name);
+          }
 
-          const suggestion = suggestSafeUpgrade(
-            package_name,
-            currentVersion,
-            deps,
-            max_risk || 'medium'
-          );
+          let compatibleVersion: string | null = null;
+          let reason: string;
+          if (availableVersions.length > 0) {
+            compatibleVersion = findCompatibleVersion(
+              package_name,
+              registry,
+              availableVersions,
+              versionConstraints
+            );
+            reason = compatibleVersion
+              ? `${compatibleVersion} is the highest of ${availableVersions.length} published versions satisfying all ${constraints.length} constraint(s)`
+              : `No published version (${availableVersions.length} checked) satisfies all ${constraints.length} constraint(s)`;
+          } else {
+            // Registry can't enumerate versions: check only the latest.
+            const latest = (await client.getPackageInfo(package_name)).latestVersion;
+            const ok = versionConstraints.every((c) => satisfiesConstraint(latest, c));
+            compatibleVersion = ok ? latest : null;
+            reason = `Version listing not supported for ${registry}; only the latest version (${latest}) was checked`;
+          }
 
           return jsonContent({
             package: package_name,
             registry,
-            latestVersion: currentVersion,
-            suggestedVersion: suggestion.version,
-            risk: suggestion.risk,
-            compatible: suggestion.compatible,
-            reason: suggestion.reason,
-            installCommand: suggestion.version
-              ? getInstallCommand(package_name, registry, suggestion.version)
+            versionsConsidered: availableVersions.length,
+            compatibleVersion,
+            compatible: compatibleVersion !== null,
+            constraints,
+            reason,
+            installCommand: compatibleVersion
+              ? getInstallCommand(package_name, registry, compatibleVersion)
               : null,
           });
         }

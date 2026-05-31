@@ -113,6 +113,32 @@ await test('pickLatestStable falls back to last when all are prereleases', async
     'no stable version -> last entry');
 });
 
+await test('CachingRegistryClient forwards and caches getAvailableVersions', async () => {
+  let calls = 0;
+  const inner = {
+    async getLatestVersion() { return '1.0.0'; },
+    async getPackageInfo() { return { name: 'p', latestVersion: '1.0.0', registry: 'fake' }; },
+    async getAvailableVersions() { calls++; return ['1.0.0', '1.1.0']; },
+  };
+  const cached = new CachingRegistryClient(inner, 'res-test-versions');
+  assert(typeof cached.getAvailableVersions === 'function', 'decorator should expose getAvailableVersions when inner supports it');
+  const a = await cached.getAvailableVersions('p');
+  const b = await cached.getAvailableVersions('p');
+  assert(JSON.stringify(a) === JSON.stringify(['1.0.0', '1.1.0']), 'returns the version list');
+  assert(JSON.stringify(b) === JSON.stringify(a), 'second call returns same list');
+  assert(calls === 1, `inner getAvailableVersions should be called once (cached), was ${calls}`);
+});
+
+await test('CachingRegistryClient omits getAvailableVersions when inner lacks it', async () => {
+  const inner = {
+    async getLatestVersion() { return '1.0.0'; },
+    async getPackageInfo() { return { name: 'p', latestVersion: '1.0.0', registry: 'fake' }; },
+  };
+  const cached = new CachingRegistryClient(inner, 'res-test-noversions');
+  assert(cached.getAvailableVersions === undefined,
+    'feature-detection: method must be absent when the inner client cannot list versions');
+});
+
 console.log(`\n=== Test Summary ===`);
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);

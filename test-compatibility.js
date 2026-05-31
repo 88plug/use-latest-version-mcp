@@ -245,6 +245,38 @@ test('generateUpgradePath: with breaking changes', () => {
   assert(path.estimatedRisk === 'high', 'should be high risk');
 });
 
+test('generateUpgradePath: multi-step through majors when versions provided', () => {
+  const available = ['1.5.0', '1.9.0', '2.0.0', '2.4.1', '3.0.0', '3.2.0', '4.0.0'];
+  const path = generateUpgradePath('pkg', 'npm', '1.5.0', '4.0.0', [], available);
+  // Steps land on the highest stable in each intermediate major, then the target.
+  const hops = path.steps.map((s) => s.toVersion);
+  assert(JSON.stringify(hops) === JSON.stringify(['2.4.1', '3.2.0', '4.0.0']),
+    `expected 2.4.1 -> 3.2.0 -> 4.0.0, got ${JSON.stringify(hops)}`);
+  assert(path.steps[0].fromVersion === '1.5.0', 'first hop starts at current');
+});
+
+test('generateUpgradePath: prereleases excluded from intermediate hops', () => {
+  const available = ['1.0.0', '2.0.0-rc.1', '2.0.0', '3.0.0'];
+  const path = generateUpgradePath('pkg', 'npm', '1.0.0', '3.0.0', [], available);
+  const hops = path.steps.map((s) => s.toVersion);
+  assert(JSON.stringify(hops) === JSON.stringify(['2.0.0', '3.0.0']),
+    `prerelease 2.0.0-rc.1 must not be a hop, got ${JSON.stringify(hops)}`);
+});
+
+test('findCompatibleVersion: excludes prereleases from a normal range', () => {
+  // ^4.17.0 must NOT resolve to 5.0.0-beta.x even though it sorts below 5.0.0.
+  const available = ['4.17.0', '4.18.0', '4.18.2', '5.0.0-beta.3', '5.0.0'];
+  const result = findCompatibleVersion('pkg', 'npm', available, [parseConstraint('^4.17.0')]);
+  assert(result === '4.18.2', `expected highest stable 4.x (4.18.2), got ${result}`);
+});
+
+test('generateUpgradePath: same-major stays a single direct step', () => {
+  const available = ['1.0.0', '1.1.0', '1.2.0'];
+  const path = generateUpgradePath('pkg', 'npm', '1.0.0', '1.2.0', [], available);
+  assert(path.steps.length === 1, 'minor bump within a major is one step');
+  assert(path.steps[0].toVersion === '1.2.0', 'direct to target');
+});
+
 // ============================================================================
 // Test 7: Breaking Change Detection
 // ============================================================================

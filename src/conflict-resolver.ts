@@ -65,6 +65,9 @@ export interface ConflictResolutionResult {
 
 export class ConflictResolver {
   private options: ConflictResolutionOptions;
+  // Warnings collected during a resolve() run (e.g. registries that could not be
+  // reached) so failures surface in the result instead of being swallowed.
+  private warnings: string[] = [];
 
   constructor(options: ConflictResolutionOptions) {
     this.options = {
@@ -81,6 +84,7 @@ export class ConflictResolver {
    * Resolve conflicts in the project
    */
   async resolve(): Promise<ConflictResolutionResult> {
+    this.warnings = [];
     const result: ConflictResolutionResult = {
       projectPath: this.options.projectPath,
       resolvedAt: new Date(),
@@ -177,6 +181,8 @@ export class ConflictResolver {
     result.summary.highRiskResolutions = resolutions.filter((r) => r.risk === 'high').length;
     result.summary.mediumRiskResolutions = resolutions.filter((r) => r.risk === 'medium').length;
     result.summary.lowRiskResolutions = resolutions.filter((r) => r.risk === 'low').length;
+
+    result.warnings.push(...this.warnings);
 
     return result;
   }
@@ -389,6 +395,11 @@ export class ConflictResolver {
         timeoutPromise,
       ]);
     } catch (error) {
+      // Degrade gracefully (caller falls back to local versions) but record the
+      // failure so it isn't silently hidden.
+      this.warnings.push(
+        `Could not fetch latest version for ${packageName} on ${registry}: ${error instanceof Error ? error.message : String(error)}`
+      );
       return '';
     }
   }
