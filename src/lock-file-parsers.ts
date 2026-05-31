@@ -562,6 +562,98 @@ export class GemfileLockParser implements LockFileParser {
 // Parser Registry
 // ============================================================================
 
+// ============================================================================
+// PHP (composer.lock)
+// ============================================================================
+
+export class ComposerLockParser implements LockFileParser {
+  name = 'packagist';
+  filePatterns = ['composer.lock'];
+  registry = 'packagist';
+
+  parse(content: string, filePath: string): LockParserResult {
+    const result: LockParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const lock = JSON.parse(content);
+      for (const section of ['packages', 'packages-dev']) {
+        const arr = lock[section];
+        if (!Array.isArray(arr)) continue;
+        for (const pkg of arr) {
+          if (!pkg || !pkg.name || !pkg.version) continue;
+          result.dependencies.push({
+            name: pkg.name,
+            version: String(pkg.version).replace(/^v/, ''),
+            registry: this.registry,
+            source: filePath,
+          });
+        }
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// Dart / Flutter (pubspec.lock)
+// ============================================================================
+
+export class PubspecLockParser implements LockFileParser {
+  name = 'pub.dev';
+  filePatterns = ['pubspec.lock'];
+  registry = 'pub.dev';
+
+  parse(content: string, filePath: string): LockParserResult {
+    const result: LockParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const lines = content.split('\n');
+      let inPackages = false;
+      let current: string | null = null;
+      let version = '';
+      let source = '';
+
+      // Only `source: hosted` packages come from pub.dev with a resolvable
+      // registry version; git/path deps are skipped.
+      const flush = () => {
+        if (current && version && source === 'hosted') {
+          result.dependencies.push({
+            name: current,
+            version,
+            registry: this.registry,
+            source: filePath,
+          });
+        }
+        current = null;
+        version = '';
+        source = '';
+      };
+
+      for (const raw of lines) {
+        const line = raw.replace(/#.*$/, '');
+        if (/^packages:\s*$/.test(line)) { inPackages = true; continue; }
+        if (inPackages && /^\S/.test(line)) { flush(); inPackages = false; continue; }
+        if (!inPackages) continue;
+
+        const pkg = line.match(/^  ([A-Za-z0-9_.]+):\s*$/);
+        if (pkg) { flush(); current = pkg[1]; continue; }
+        const ver = line.match(/^    version:\s*["']?([^"'\s]+)["']?\s*$/);
+        if (ver) { version = ver[1]; continue; }
+        const src = line.match(/^    source:\s*(\S+)\s*$/);
+        if (src) source = src[1];
+      }
+      flush();
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const LOCK_PARSERS: LockFileParser[] = [
   new NpmLockParser(),
   new YarnLockParser(),
@@ -571,6 +663,8 @@ export const LOCK_PARSERS: LockFileParser[] = [
   new GoSumParser(),
   new CargoLockParser(),
   new GemfileLockParser(),
+  new ComposerLockParser(),
+  new PubspecLockParser(),
 ];
 
 /**

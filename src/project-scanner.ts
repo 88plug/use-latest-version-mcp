@@ -103,6 +103,9 @@ const DEPENDENCY_FILE_PATTERNS = [
   'composer.json',
   'pubspec.yaml',
   'environment.yml',
+  'libs.versions.toml',
+  'DESCRIPTION',
+  'Pipfile',
 ];
 
 const LOCK_FILE_PATTERNS = [
@@ -114,6 +117,8 @@ const LOCK_FILE_PATTERNS = [
   'go.sum',
   'Cargo.lock',
   'Gemfile.lock',
+  'composer.lock',
+  'pubspec.lock',
 ];
 
 // ============================================================================

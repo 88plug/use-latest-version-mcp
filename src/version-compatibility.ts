@@ -120,7 +120,12 @@ export function compareVersions(a: string, b: string): number {
   const semverB = parseSemVer(b);
 
   if (!semverA || !semverB) {
-    // Fallback to string comparison for non-semver versions
+    // When only one side parses as semver, prefer it: a real version should
+    // outrank a non-semver legacy string (e.g. Maven's ancient "r09") rather
+    // than losing a lexical localeCompare.
+    if (semverA && !semverB) return 1;
+    if (!semverA && semverB) return -1;
+    // Neither parses: fall back to string comparison.
     return a.localeCompare(b);
   }
 

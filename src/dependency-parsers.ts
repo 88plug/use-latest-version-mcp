@@ -891,6 +891,206 @@ export class CondaParser implements DependencyParser {
   }
 }
 
+// ============================================================================
+// Gradle Version Catalog (gradle/libs.versions.toml)
+// ============================================================================
+
+export class GradleVersionCatalogParser implements DependencyParser {
+  name = 'gradle';
+  filePatterns = ['libs.versions.toml'];
+  registry = 'maven';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const lines = content.split('\n');
+      const versions: Record<string, string> = {};
+      let section = '';
+
+      for (const raw of lines) {
+        const line = raw.replace(/#.*$/, '');
+        const sec = line.match(/^\s*\[([^\]]+)\]\s*$/);
+        if (sec) { section = sec[1].trim(); continue; }
+
+        const kv = line.match(/^\s*([A-Za-z0-9_.\-]+)\s*=\s*(.+?)\s*$/);
+        if (!kv) continue;
+        const key = kv[1];
+        const val = kv[2];
+
+        if (section === 'versions') {
+          const m = val.match(/^["']([^"']+)["']$/);
+          if (m) versions[key] = m[1];
+          continue;
+        }
+        if (section !== 'libraries' && section !== 'plugins') continue;
+
+        let name: string | undefined;
+        let version: string | undefined;
+        if (val.startsWith('"') || val.startsWith("'")) {
+          // String form: libraries "group:artifact:version".
+          const parts = val.replace(/^["']|["']$/g, '').split(':');
+          if (section === 'libraries' && parts.length >= 2) {
+            name = `${parts[0]}:${parts[1]}`;
+            version = parts[2];
+          }
+        } else if (val.startsWith('{')) {
+          const module = val.match(/\bmodule\s*=\s*["']([^"']+)["']/);
+          const group = val.match(/\bgroup\s*=\s*["']([^"']+)["']/);
+          const nm = val.match(/\bname\s*=\s*["']([^"']+)["']/);
+          const id = val.match(/\bid\s*=\s*["']([^"']+)["']/);
+          const verLit = val.match(/\bversion\s*=\s*["']([^"']+)["']/);
+          const verRef = val.match(/\bversion\.ref\s*=\s*["']([^"']+)["']/);
+          if (section === 'plugins') {
+            name = id?.[1];
+          } else if (module) {
+            name = module[1];
+          } else if (group && nm) {
+            name = `${group[1]}:${nm[1]}`;
+          }
+          version = verLit?.[1] ?? (verRef ? versions[verRef[1]] : undefined);
+        }
+
+        if (name) {
+          result.dependencies.push({
+            name,
+            version,
+            constraint: version,
+            // [plugins] resolve via the Gradle plugin portal; [libraries] are Maven coords.
+            registry: section === 'plugins' ? 'gradle' : 'maven',
+            type: 'production',
+            source: filePath,
+          });
+        }
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// R (DESCRIPTION — Debian Control Format)
+// ============================================================================
+
+export class RDescriptionParser implements DependencyParser {
+  name = 'cran';
+  filePatterns = ['DESCRIPTION'];
+  registry = 'cran';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      // DCF: `Field:` at column 0, continuation lines indented. Collect the
+      // dependency fields (which may span many lines), then split on commas.
+      const lines = content.split('\n');
+      const fields: Record<string, string[]> = {};
+      let current = '';
+      for (const raw of lines) {
+        const start = raw.match(/^([A-Za-z][A-Za-z0-9]*)\s*:\s*(.*)$/);
+        if (start && !/^\s/.test(raw)) {
+          current = start[1];
+          fields[current] = fields[current] || [];
+          if (start[2].trim()) fields[current].push(start[2]);
+        } else if (/^\s+\S/.test(raw) && current) {
+          fields[current].push(raw.trim());
+        }
+      }
+
+      const sections: Array<[string, ParsedDependency['type']]> = [
+        ['Depends', 'production'],
+        ['Imports', 'production'],
+        ['LinkingTo', 'production'],
+        ['Suggests', 'development'],
+        ['Enhances', 'development'],
+      ];
+      for (const [field, type] of sections) {
+        const text = (fields[field] || []).join(' ');
+        if (!text) continue;
+        for (const entry of text.split(',')) {
+          const m = entry.trim().match(/^([A-Za-z][A-Za-z0-9._]*)\s*(?:\(([^)]+)\))?/);
+          if (!m || !m[1]) continue;
+          if (m[1] === 'R') continue; // the R runtime itself, not a CRAN package
+          const constraint = m[2] ? m[2].trim() : undefined;
+          result.dependencies.push({
+            name: m[1],
+            version: constraint ? extractPinnedVersion(constraint) : undefined,
+            constraint,
+            registry: this.registry,
+            type,
+            source: filePath,
+          });
+        }
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
+// ============================================================================
+// Python (Pipfile — pipenv)
+// ============================================================================
+
+export class PipfileParser implements DependencyParser {
+  name = 'pypi';
+  filePatterns = ['Pipfile'];
+  registry = 'pypi';
+
+  parse(content: string, filePath: string): ParserResult {
+    const result: ParserResult = { dependencies: [], errors: [], warnings: [] };
+
+    try {
+      const lines = content.split('\n');
+      let type: ParsedDependency['type'] | null = null;
+
+      for (const raw of lines) {
+        const line = raw.replace(/#.*$/, '');
+        const sec = line.match(/^\s*\[([^\]]+)\]\s*$/);
+        if (sec) {
+          const s = sec[1].trim();
+          type = s === 'packages' ? 'production' : s === 'dev-packages' ? 'development' : null;
+          continue;
+        }
+        if (!type) continue;
+
+        const kv = line.match(/^\s*([A-Za-z0-9_.\-]+)\s*=\s*(.+?)\s*$/);
+        if (!kv) continue;
+        const name = kv[1];
+        if (name === 'python_version' || name === 'python_full_version') continue;
+
+        const val = kv[2];
+        let constraint: string | undefined;
+        if (val.startsWith('{')) {
+          // Inline table: {version = "x", extras = [...], ...}
+          constraint = val.match(/\bversion\s*=\s*["']([^"']*)["']/)?.[1];
+        } else {
+          constraint = val.replace(/^["']|["']$/g, '');
+        }
+        if (constraint === '*' || constraint === '') constraint = undefined;
+
+        result.dependencies.push({
+          name,
+          version: constraint ? extractPinnedVersion(constraint) : undefined,
+          constraint,
+          registry: this.registry,
+          type,
+          source: filePath,
+        });
+      }
+    } catch (error) {
+      result.errors.push(`Failed to parse ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return result;
+  }
+}
+
 export const PARSERS: DependencyParser[] = [
   new NpmParser(),
   new PythonParser(),
@@ -903,6 +1103,9 @@ export const PARSERS: DependencyParser[] = [
   new ComposerParser(),
   new PubspecParser(),
   new CondaParser(),
+  new GradleVersionCatalogParser(),
+  new RDescriptionParser(),
+  new PipfileParser(),
 ];
 
 /**

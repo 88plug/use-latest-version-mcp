@@ -4,7 +4,7 @@
  * Test script for dependency file parsers
  */
 
-import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser } from './build/dependency-parsers.js';
+import { parseDependencyFile, getParserForFile, PARSERS, PyProjectParser, CargoParser, CsprojParser, ComposerParser, PubspecParser, CondaParser, GradleVersionCatalogParser, RDescriptionParser, PipfileParser } from './build/dependency-parsers.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -44,7 +44,7 @@ if (!existsSync(testDir)) {
 console.log('\n--- Parser Registry ---');
 
 test('PARSERS has all expected parsers', () => {
-  assert(PARSERS.length === 11, 'should have 11 parsers (incl. Csproj/Composer/Pubspec/Conda)');
+  assert(PARSERS.length === 14, 'should have 14 parsers (incl. GradleCatalog/RDescription/Pipfile)');
 });
 
 test('getParserForFile finds npm parser', () => {
@@ -546,6 +546,67 @@ dependencies:
   assert(numpy.version === '1.20' && numpy.registry === 'conda', 'conda = pin extracted');
   assert(requests && requests.registry === 'pypi', 'nested pip dep attributed to pypi registry');
   assert(getParserForFile('environment.yml')?.name === 'conda', 'environment.yml routes to conda');
+});
+
+test('GradleVersionCatalogParser resolves version.ref and tags libraries=maven, plugins=gradle', () => {
+  const toml = `[versions]
+retrofit = "2.11.0"
+hilt = "2.59"
+[libraries]
+retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+javax-inject = { module = "javax.inject:javax.inject", version = "1" }
+[plugins]
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+`;
+  const r = new GradleVersionCatalogParser().parse(toml, 'libs.versions.toml');
+  const retro = r.dependencies.find((d) => d.name === 'com.squareup.retrofit2:retrofit');
+  const inject = r.dependencies.find((d) => d.name === 'javax.inject:javax.inject');
+  const hilt = r.dependencies.find((d) => d.name === 'com.google.dagger.hilt.android');
+  assert(retro.version === '2.11.0' && retro.registry === 'maven', 'version.ref resolved + maven registry');
+  assert(inject.version === '1', 'inline literal version');
+  assert(hilt.version === '2.59' && hilt.registry === 'gradle', 'plugin -> gradle registry');
+  assert(getParserForFile('libs.versions.toml')?.name === 'gradle', 'routes to gradle catalog parser');
+});
+
+test('RDescriptionParser parses Imports/Suggests, keeps version ranges, skips R', () => {
+  const desc = `Package: ggplot2
+Depends:
+    R (>= 4.1)
+Imports:
+    cli,
+    gtable (>= 0.3.6),
+    rlang (>= 1.1.0)
+Suggests:
+    knitr,
+    covr
+`;
+  const r = new RDescriptionParser().parse(desc, 'DESCRIPTION');
+  const names = r.dependencies.map((d) => d.name);
+  assert(!names.includes('R'), 'R runtime itself skipped');
+  assert(names.includes('cli') && names.includes('gtable'), 'Imports found');
+  const gtable = r.dependencies.find((d) => d.name === 'gtable');
+  assert(gtable.constraint === '>= 0.3.6' && gtable.version === undefined, 'range kept as constraint, no false pin');
+  assert(r.dependencies.find((d) => d.name === 'knitr').type === 'development', 'Suggests -> development');
+});
+
+test('PipfileParser parses [packages]/[dev-packages] incl. inline tables, skips python_version', () => {
+  const pipfile = `[packages]
+requests = ">=2.32.0"
+click = "==8.0.3"
+pytz = "*"
+myst-parser = {extras = ["linkify"], version = "==1.0"}
+[dev-packages]
+sphinx = "*"
+[requires]
+python_version = "3.11"
+`;
+  const r = new PipfileParser().parse(pipfile, 'Pipfile');
+  const click = r.dependencies.find((d) => d.name === 'click');
+  const myst = r.dependencies.find((d) => d.name === 'myst-parser');
+  assert(click.version === '8.0.3', '== pin extracted');
+  assert(myst && myst.version === '1.0', 'inline-table version extracted');
+  assert(!r.dependencies.some((d) => d.name === 'python_version'), 'python_version skipped');
+  assert(r.dependencies.find((d) => d.name === 'sphinx').type === 'development', 'dev-packages -> development');
 });
 
 // ============================================================================

@@ -370,7 +370,11 @@ export class MavenRegistryClient implements RegistryClient {
   // Maven prerelease/snapshot markers (case-insensitive): -alpha/-beta/-rc/-m/-cr,
   // .RELEASE-less qualifiers, and -SNAPSHOT.
   private isPrerelease(v: string): boolean {
-    return /-?(alpha|beta|rc|cr|m\d|snapshot|pr|preview|dev|ea)\b/i.test(v) || v.includes('-');
+    // Match Maven prerelease/milestone qualifiers only. A leading separator is
+    // required so STABLE classifier suffixes (-jre, -android, -RELEASE, -Final)
+    // are NOT treated as prereleases — earlier `|| v.includes('-')` wrongly
+    // flagged e.g. Guava's 33.4.8-jre, collapsing the stable pool.
+    return /[-._](alpha|beta|rc|cr|m\d+|snapshot|preview|pre|dev|ea)\d*\b/i.test(v);
   }
 
   private parseCoordinates(packageName: string): [string, string] {
@@ -1843,7 +1847,7 @@ export class HackageRegistryClient implements RegistryClient {
     }
     const text = await response.text();
     // Extract version from package page HTML: aeson-2.2.3.0
-    const versionMatch = text.match(new RegExp(`${packageName}-(\\d+\\.\\d+\\.\\d+\\.\\d+)`));
+    const versionMatch = text.match(new RegExp(`${packageName}-(\\d+(?:\\.\\d+)+)`));
     if (!versionMatch) {
       throw new EnhancedRegistryError(
         `Could not parse version from package page. The package may have an unexpected format.`,

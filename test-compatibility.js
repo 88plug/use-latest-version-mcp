@@ -263,6 +263,14 @@ test('generateUpgradePath: prereleases excluded from intermediate hops', () => {
     `prerelease 2.0.0-rc.1 must not be a hop, got ${JSON.stringify(hops)}`);
 });
 
+test('compareVersions: a real semver outranks a non-semver legacy string', () => {
+  // Maven artifacts can have ancient non-semver versions (e.g. Guava "r09");
+  // a real version must win rather than losing a lexical compare.
+  assert(compareVersions('33.4.8-jre', 'r09') > 0, '33.4.8-jre should outrank r09');
+  assert(compareVersions('r09', '1.0.0') < 0, 'r09 should rank below 1.0.0');
+  assert(compareVersions('foo', 'bar') === 'foo'.localeCompare('bar'), 'two non-semver strings still localeCompare');
+});
+
 test('parseSemVer/compareVersions: Cargo "=" exact-pin parses (not false-outdated)', () => {
   const p = parseSemVer('=1.0.228');
   assert(p !== null && p.major === 1 && p.minor === 0 && p.patch === 228, 'should parse =1.0.228');
