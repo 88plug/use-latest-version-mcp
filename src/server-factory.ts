@@ -30,6 +30,11 @@ import {
 } from './version-compatibility.js';
 import { scanProject } from './project-scanner.js';
 import { checkOutdated } from './outdated-checker.js';
+import { resolveConflicts } from './conflict-resolver.js';
+import { optimizeVersions, type OptimizationPlan } from './global-version-optimizer.js';
+import { UpgradeValidator } from './upgrade-validator.js';
+import { applyUpgrades } from './upgrade-applier.js';
+import { isAbsolute, relative } from 'node:path';
 
 export const SERVER_INFO = {
   name: 'use-latest-version-mcp-server',
@@ -179,6 +184,35 @@ export function getInstallCommand(
       return `# Unsupported registry: ${registry}`;
   }
 }
+
+// Shape of one item in an upgrade/optimization plan, matching the
+// OptimizationPlan type consumed by validate_upgrade_plan and apply_upgrades.
+// `package`, `suggestedVersion`, `action`, and `affectedFiles` are what the
+// applier actually needs; the rest are carried through from optimize_versions.
+const PLAN_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    package: { type: 'string', description: 'Package name' },
+    registry: { type: 'string', description: 'Registry the package belongs to' },
+    currentVersion: { type: 'string', description: 'Current version (may be empty if unknown)' },
+    currentConstraint: { type: 'string', description: 'Current version constraint, if any' },
+    suggestedVersion: { type: 'string', description: 'Target version, or "removed" to drop the dependency' },
+    suggestedConstraint: { type: 'string', description: 'Target constraint to write (defaults to suggestedVersion)' },
+    action: {
+      type: 'string',
+      enum: ['keep', 'upgrade', 'downgrade', 'remove'],
+      description: 'What to do with this dependency',
+    },
+    reason: { type: 'string', description: 'Why this change is suggested' },
+    risk: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Estimated risk of the change' },
+    affectedFiles: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Manifest files to modify, relative to project_path',
+    },
+  },
+  required: ['package', 'suggestedVersion', 'action', 'affectedFiles'],
+} as const;
 
 const TOOL_DEFINITIONS = [
   {
@@ -487,6 +521,122 @@ const TOOL_DEFINITIONS = [
         },
       },
       required: ['project_path'],
+    },
+  },
+  {
+    name: 'resolve_conflicts',
+    description: 'Scan a local project, detect dependency version conflicts (the same package required at incompatible versions across files), and suggest a single compatible resolution version for each conflict, with an upgrade/downgrade/keep action and risk. Read-only — it suggests, it does not modify files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: {
+          type: 'string',
+          description: 'Absolute path to the project directory to scan',
+        },
+        include_lock_files: {
+          type: 'boolean',
+          description: 'Also consider lock-file versions when detecting conflicts. Default: true',
+          default: true,
+        },
+        allow_downgrade: {
+          type: 'boolean',
+          description: 'Permit downgrade resolutions when no higher compatible version exists. Default: false',
+          default: false,
+        },
+        prefer_latest: {
+          type: 'boolean',
+          description: 'Prefer the latest compatible version when resolving. Default: true',
+          default: true,
+        },
+      },
+      required: ['project_path'],
+    },
+  },
+  {
+    name: 'optimize_versions',
+    description: 'Scan a local project and produce a global optimization plan: for every dependency, the suggested version and action (keep/upgrade/downgrade/remove) that maximizes cross-package compatibility and currency, each with a risk rating. Read-only — returns a plan you can pass to validate_upgrade_plan or apply_upgrades.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: {
+          type: 'string',
+          description: 'Absolute path to the project directory to optimize',
+        },
+        include_lock_files: {
+          type: 'boolean',
+          description: 'Consider lock-file versions when building the plan. Default: true',
+          default: true,
+        },
+        allow_downgrade: {
+          type: 'boolean',
+          description: 'Allow the plan to downgrade packages. Default: false',
+          default: false,
+        },
+        prefer_latest: {
+          type: 'boolean',
+          description: 'Prefer the latest compatible version for each package. Default: true',
+          default: true,
+        },
+      },
+      required: ['project_path'],
+    },
+  },
+  {
+    name: 'validate_upgrade_plan',
+    description: 'Validate a proposed upgrade plan (e.g. the plan returned by optimize_versions) before applying it. Checks each change for breaking (major) version bumps, circular dependencies, and constraint violations, and reports whether the plan is safe to apply. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: {
+          type: 'string',
+          description: 'Absolute path to the project the plan applies to',
+        },
+        plan: {
+          type: 'array',
+          items: PLAN_ITEM_SCHEMA,
+          description: 'The upgrade plan to validate (array of plan items, as produced by optimize_versions)',
+        },
+        allow_major_version_changes: {
+          type: 'boolean',
+          description: 'Treat major-version bumps as allowed rather than blocking. Default: true',
+          default: true,
+        },
+        strict_mode: {
+          type: 'boolean',
+          description: 'Fail validation on warnings, not just errors. Default: false',
+          default: false,
+        },
+      },
+      required: ['project_path', 'plan'],
+    },
+  },
+  {
+    name: 'apply_upgrades',
+    description: 'Apply an upgrade plan to the project\'s dependency manifests (package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, etc.). DEFAULTS TO A DRY RUN (preview only): pass dry_run=false to actually write changes to disk. When writing, a timestamped backup of each modified file is created under .dependency-backups (unless create_backup=false), and all changes for a file roll back automatically if an error occurs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_path: {
+          type: 'string',
+          description: 'Absolute path to the project directory',
+        },
+        plan: {
+          type: 'array',
+          items: PLAN_ITEM_SCHEMA,
+          description: 'The upgrade plan to apply (array of plan items, as produced by optimize_versions)',
+        },
+        dry_run: {
+          type: 'boolean',
+          description: 'Preview changes without writing them. Default: true (set false to write).',
+          default: true,
+        },
+        create_backup: {
+          type: 'boolean',
+          description: 'Back up each file before modifying it (only when dry_run=false). Default: true',
+          default: true,
+        },
+      },
+      required: ['project_path', 'plan'],
     },
   },
 ];
@@ -1033,6 +1183,87 @@ Please try again or use a different registry.`,
           });
 
           return jsonContent(outdated);
+        }
+
+        case 'resolve_conflicts': {
+          const { project_path, include_lock_files, allow_downgrade, prefer_latest } = args as {
+            project_path: string;
+            include_lock_files?: boolean;
+            allow_downgrade?: boolean;
+            prefer_latest?: boolean;
+          };
+
+          const result = await resolveConflicts({
+            projectPath: project_path,
+            includeLockFiles: include_lock_files !== false,
+            allowDowngrade: allow_downgrade === true,
+            preferLatest: prefer_latest !== false,
+          });
+
+          return jsonContent(result);
+        }
+
+        case 'optimize_versions': {
+          const { project_path, include_lock_files, allow_downgrade, prefer_latest } = args as {
+            project_path: string;
+            include_lock_files?: boolean;
+            allow_downgrade?: boolean;
+            prefer_latest?: boolean;
+          };
+
+          const result = await optimizeVersions({
+            projectPath: project_path,
+            includeLockFiles: include_lock_files !== false,
+            allowDowngrade: allow_downgrade === true,
+            preferLatest: prefer_latest !== false,
+          });
+
+          return jsonContent(result);
+        }
+
+        case 'validate_upgrade_plan': {
+          const { project_path, plan, allow_major_version_changes, strict_mode } = args as {
+            project_path: string;
+            plan: OptimizationPlan[];
+            allow_major_version_changes?: boolean;
+            strict_mode?: boolean;
+          };
+
+          const validator = new UpgradeValidator({
+            projectPath: project_path,
+            allowMajorVersionChanges: allow_major_version_changes !== false,
+            strictMode: strict_mode === true,
+          });
+
+          const result = await validator.validatePlan(plan);
+          return jsonContent(result);
+        }
+
+        case 'apply_upgrades': {
+          const { project_path, plan, dry_run, create_backup } = args as {
+            project_path: string;
+            plan: OptimizationPlan[];
+            dry_run?: boolean;
+            create_backup?: boolean;
+          };
+
+          // The applier resolves each affectedFiles entry against project_path, so
+          // normalize any absolute paths (e.g. the `source` paths optimize_versions
+          // emits) back to project-relative; relative entries pass through unchanged.
+          const normalizedPlan: OptimizationPlan[] = plan.map((item) => ({
+            ...item,
+            affectedFiles: (item.affectedFiles || []).map((f) =>
+              isAbsolute(f) ? relative(project_path, f) : f
+            ),
+          }));
+
+          const result = await applyUpgrades(project_path, normalizedPlan, {
+            // Default to a dry run so an agent must explicitly opt in to writing files.
+            dryRun: dry_run !== false,
+            createBackup: create_backup !== false,
+          });
+
+          return jsonContent(result);
         }
 
         default:

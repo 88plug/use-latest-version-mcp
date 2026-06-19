@@ -480,6 +480,10 @@ test('explicit maxDepth:undefined falls back to the default (not NaN/unbounded)'
   assert(result.files.length >= 1, 'scan should still find the root files with undefined maxDepth');
 });
 
+// Final cleanup: the undef-opt regression block above recreates the scratch
+// dir after cleanup(), so remove it once more to leave the tree clean.
+rmSync(testDir, { recursive: true, force: true });
+
 // ============================================================================
 // Summary
 // ============================================================================
