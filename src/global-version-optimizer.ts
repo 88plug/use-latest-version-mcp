@@ -225,10 +225,13 @@ export class GlobalVersionOptimizer {
     const constraints = [...new Set(dependencies.map((d) => d.constraint).filter((c): c is string => !!c))];
     const affectedFiles = [...new Set(dependencies.map((d) => d.source))];
 
-    // Get current version (highest)
-    const currentVersion = uniqueVersions.reduce((max, v) =>
-      compareVersions(v, max) > 0 ? v : max
-    );
+    // Get current version (highest). A package pinned only by a range/wildcard
+    // (e.g. ">=1.0.0", "*") with no lock file has no concrete version, leaving
+    // uniqueVersions empty — reduce without a seed throws on that, so fall back
+    // to '' (unknown). Downstream then treats any registry latest as an upgrade.
+    const currentVersion = uniqueVersions.length > 0
+      ? uniqueVersions.reduce((max, v) => (compareVersions(v, max) > 0 ? v : max))
+      : '';
 
     // Get current constraint (most permissive)
     const currentConstraint = this.getMostPermissiveConstraint(constraints);

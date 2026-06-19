@@ -7,6 +7,12 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlin
 import { join, basename, relative } from 'path';
 import { OptimizationPlan } from './global-version-optimizer.js';
 
+// Escape a string for safe interpolation into a RegExp (package names contain
+// '.', '-', etc. which are regex-significant).
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -129,6 +135,10 @@ export class UpgradeApplier {
 
         if (this.options.rollbackOnError && !this.options.dryRun) {
           await this.rollback();
+          // Stop after rolling back. Continuing would re-apply the remaining
+          // files while the already-applied ones have just been reverted,
+          // leaving a partial, unrecoverable mix on disk.
+          break;
         }
       }
     }
@@ -136,8 +146,14 @@ export class UpgradeApplier {
     // Update summary. Classify each applied change by its plan item's `action`
     // (the authoritative intent) rather than by string-comparing versions, so an
     // upgrade whose prior version is unknown — applyUpgrade leaves
-    // currentVersion empty — is still counted instead of silently dropped.
+    // currentVersion empty — is still counted instead of silently dropped. Each
+    // package is counted once even when it spans several files (one UpgradeChange
+    // is emitted per package×file), so the counts are package counts, not edits.
+    const countedPackages = new Set<string>();
     for (const change of result.changes) {
+      if (countedPackages.has(change.package)) continue;
+      countedPackages.add(change.package);
+
       const planItem = plan.find(p => p.package === change.package);
       const action = planItem?.action;
 
@@ -306,14 +322,15 @@ export class UpgradeApplier {
         continue;
       }
 
-      // Parse package name
-      const match = trimmed.match(/^([a-zA-Z0-9_-]+)/);
+      // Parse package name plus any PEP 508 extras, e.g. "requests[security]".
+      const match = trimmed.match(/^([a-zA-Z0-9_.\-]+)(\[[^\]]*\])?/);
       if (!match) {
         newLines.push(line);
         continue;
       }
 
       const packageName = match[1].toLowerCase();
+      const nameWithExtras = match[1] + (match[2] || '');
       const change = changeMap.get(packageName);
 
       if (change) {
@@ -322,9 +339,9 @@ export class UpgradeApplier {
           continue;
         }
 
-        // Update version
+        // Update version, preserving the original name+extras spelling.
         const newVersion = change.suggestedConstraint || change.suggestedVersion;
-        newLines.push(`${change.package}${newVersion ? '==' + newVersion : ''}`);
+        newLines.push(`${nameWithExtras}${newVersion ? '==' + newVersion : ''}`);
         changeMap.delete(packageName);
       } else {
         newLines.push(line);
@@ -357,6 +374,8 @@ export class UpgradeApplier {
 
     for (const line of lines) {
       const trimmed = line.trim();
+      // Preserve the line's leading indentation when rewriting it.
+      const indent = line.slice(0, line.length - line.trimStart().length);
 
       // Preserve section header lines unchanged
       if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
@@ -364,38 +383,46 @@ export class UpgradeApplier {
         continue;
       }
 
-      // Parse dependency line (key = "value" format)
-      const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"/);
-      if (match) {
-        const packageName = match[1].toLowerCase();
+      // Simple form: name = "1.2.3"
+      const strMatch = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"/);
+      if (strMatch) {
+        const packageName = strMatch[1].toLowerCase();
         const change = changeMap.get(packageName);
-
         if (change) {
-          if (change.action === 'remove') {
-            continue;
-          }
-
-          const newVersion = change.suggestedConstraint || change.suggestedVersion;
-          newLines.push(`${match[1]} = "${newVersion}"`);
           changeMap.delete(packageName);
+          if (change.action === 'remove') continue;
+          const newVersion = change.suggestedConstraint || change.suggestedVersion;
+          newLines.push(`${indent}${strMatch[1]} = "${newVersion}"`);
           continue;
         }
       }
 
-      // Parse array-style dependencies (e.g., "django==3.2.0",)
+      // Inline-table form: name = { version = "1.2.3", features = [...] }
+      // Rewrite only the version field so other keys (features, optional, ...) survive.
+      const tblMatch = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*\{(.*)\}\s*$/);
+      if (tblMatch && /\bversion\s*=\s*"/.test(tblMatch[2])) {
+        const packageName = tblMatch[1].toLowerCase();
+        const change = changeMap.get(packageName);
+        if (change) {
+          changeMap.delete(packageName);
+          if (change.action === 'remove') continue;
+          const newVersion = change.suggestedConstraint || change.suggestedVersion;
+          const newInner = tblMatch[2].replace(/(\bversion\s*=\s*")[^"]*(")/, `$1${newVersion}$2`);
+          newLines.push(`${indent}${tblMatch[1]} = {${newInner}}`);
+          continue;
+        }
+      }
+
+      // Array-style dependencies (e.g., "django==3.2.0",)
       const arrayMatch = trimmed.match(/^"([a-zA-Z0-9_-]+)(?:==|>=|<=|~=|>|<|!=)([^"]+)"/);
       if (arrayMatch) {
         const packageName = arrayMatch[1].toLowerCase();
         const change = changeMap.get(packageName);
-
         if (change) {
-          if (change.action === 'remove') {
-            continue;
-          }
-
-          const newVersion = change.suggestedConstraint || change.suggestedVersion;
-          newLines.push(`"${change.package}${newVersion ? '==' + newVersion : ''}",`);
           changeMap.delete(packageName);
+          if (change.action === 'remove') continue;
+          const newVersion = change.suggestedConstraint || change.suggestedVersion;
+          newLines.push(`${indent}"${change.package}${newVersion ? '==' + newVersion : ''}",`);
           continue;
         }
       }
@@ -420,39 +447,43 @@ export class UpgradeApplier {
     const newLines: string[] = [];
     let inRequire = false;
 
+    // go.mod versions are `vX.Y.Z`; ensure exactly one leading 'v'.
+    const goVersion = (v: string) => (v.startsWith('v') ? v : `v${v}`);
+
+    // Rewrite a "module version [// comment]" entry, preserving any trailing
+    // comment (e.g. "// indirect", which marks indirect deps for the toolchain).
+    // Returns the new line, '' to delete the line, or null if no change applies.
+    const rewriteEntry = (body: string, indent: string): string | null => {
+      const m = body.match(/^(\S+)\s+(\S+)(\s*\/\/.*)?$/);
+      if (!m) return null;
+      const packageName = m[1].toLowerCase();
+      const change = changeMap.get(packageName);
+      if (!change) return null;
+      changeMap.delete(packageName);
+      if (change.action === 'remove') return '';
+      const comment = m[3] || '';
+      return `${indent}${m[1]} ${goVersion(change.suggestedVersion)}${comment}`;
+    };
+
     for (const line of lines) {
       const trimmed = line.trim();
 
-      if (trimmed === 'require (') {
-        inRequire = true;
-        newLines.push(line);
-        continue;
-      }
-
-      if (inRequire && trimmed === ')') {
-        inRequire = false;
-        newLines.push(line);
-        continue;
-      }
+      if (trimmed === 'require (') { inRequire = true; newLines.push(line); continue; }
+      if (inRequire && trimmed === ')') { inRequire = false; newLines.push(line); continue; }
 
       if (inRequire) {
-        // Parse require line: "package version"
-        const parts = trimmed.split(/\s+/);
-        if (parts.length >= 2) {
-          const packageName = parts[0].toLowerCase();
-          const change = changeMap.get(packageName);
+        const rewritten = rewriteEntry(trimmed, '\t');
+        if (rewritten === '') continue;          // remove
+        if (rewritten !== null) { newLines.push(rewritten); continue; }
+        newLines.push(line);
+        continue;
+      }
 
-          if (change) {
-            if (change.action === 'remove') {
-              continue;
-            }
-
-            const newVersion = change.suggestedVersion;
-            newLines.push(`\t${change.package} ${newVersion}`);
-            changeMap.delete(packageName);
-            continue;
-          }
-        }
+      // Single-line form: require github.com/foo/bar v1.0.0 [// indirect]
+      if (trimmed.startsWith('require ')) {
+        const rewritten = rewriteEntry(trimmed.slice('require '.length).trim(), '');
+        if (rewritten === '') continue;          // remove the whole single-line require
+        if (rewritten !== null) { newLines.push(`require ${rewritten}`); continue; }
       }
 
       newLines.push(line);
@@ -465,27 +496,28 @@ export class UpgradeApplier {
    * Apply changes to XML files (pom.xml)
    */
   private applyXmlChanges(content: string, changes: OptimizationPlan[]): string {
-    const changeMap = new Map<string, OptimizationPlan>();
-
-    for (const change of changes) {
-      changeMap.set(change.package.toLowerCase(), change);
-    }
-
     let newContent = content;
 
     for (const change of changes) {
+      // Maven package names are `groupId:artifactId`, but pom.xml keys the
+      // dependency on its <artifactId> element — matching the full
+      // "groupId:artifactId" string against <artifactId> never matched, so every
+      // Maven change used to silently no-op. Match on the artifactId, escaped.
+      const artifactId = change.package.includes(':')
+        ? change.package.split(':')[1]
+        : change.package;
+      const a = escapeRegExp(artifactId);
+
       if (change.action === 'remove') {
-        // Remove dependency element
         const regex = new RegExp(
-          `<dependency>[\\s\\S]*?<artifactId>${change.package}</artifactId>[\\s\\S]*?</dependency>`,
+          `\\s*<dependency>[\\s\\S]*?<artifactId>\\s*${a}\\s*</artifactId>[\\s\\S]*?</dependency>`,
           'g'
         );
         newContent = newContent.replace(regex, '');
       } else {
-        // Update version
         const newVersion = change.suggestedVersion;
         const regex = new RegExp(
-          `(<dependency>[\\s\\S]*?<artifactId>${change.package}</artifactId>[\\s\\S]*?<version>)([^<]+)(</version>[\\s\\S]*?</dependency>)`,
+          `(<dependency>[\\s\\S]*?<artifactId>\\s*${a}\\s*</artifactId>[\\s\\S]*?<version>)([^<]+)(</version>)`,
           'g'
         );
         newContent = newContent.replace(regex, `$1${newVersion}$3`);

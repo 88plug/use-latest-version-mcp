@@ -132,9 +132,13 @@ export class ConflictResolver {
     result.errors.push(...scanResult.errors);
     result.warnings.push(...scanResult.warnings);
 
-    // Get unique dependencies (by name and registry)
+    // getUniqueDependencies intentionally returns ALL entries (duplicates are
+    // what conflict detection needs); count distinct name@registry separately so
+    // packagesChecked reflects packages, not raw entries across files.
     const uniqueDeps = this.getUniqueDependencies(scanResult.dependencies);
-    result.summary.packagesChecked = uniqueDeps.length;
+    result.summary.packagesChecked = new Set(
+      scanResult.dependencies.map((d) => `${d.name}@${d.registry}`)
+    ).size;
 
     // Detect conflicts
     const conflicts = detectConflicts(
@@ -234,6 +238,22 @@ export class ConflictResolver {
       .map((d) => d.constraint)
       .filter((c): c is string => !!c)
       .map(parseConstraint);
+
+    // Defensive: a detected conflict always has >=2 concrete versions, so this
+    // is unreachable today — but guard the reduces below against an empty list
+    // (reduce with no seed throws) in case the detection path ever changes.
+    if (uniqueVersions.length === 0) {
+      return {
+        package: packageName,
+        registry,
+        currentVersions: [],
+        suggestedVersion: '',
+        resolutionType: 'keep',
+        affectedFiles,
+        reason: 'No concrete version available to resolve',
+        risk: 'low',
+      };
+    }
 
     // Get available versions from registry
     let availableVersions: string[] = [];
