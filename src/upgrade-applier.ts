@@ -133,18 +133,23 @@ export class UpgradeApplier {
       }
     }
 
-    // Update summary
+    // Update summary. Classify each applied change by its plan item's `action`
+    // (the authoritative intent) rather than by string-comparing versions, so an
+    // upgrade whose prior version is unknown — applyUpgrade leaves
+    // currentVersion empty — is still counted instead of silently dropped.
     for (const change of result.changes) {
-      if (change.newVersion === 'removed' || change.newVersion === '') {
+      const planItem = plan.find(p => p.package === change.package);
+      const action = planItem?.action;
+
+      if (action === 'remove' || change.newVersion === 'removed' || change.newVersion === '') {
         result.summary.packagesRemoved++;
+      } else if (action === 'downgrade') {
+        result.summary.packagesDowngraded++;
+      } else if (action === 'upgrade') {
+        result.summary.packagesUpgraded++;
       } else if (change.oldVersion && change.newVersion !== change.oldVersion) {
-        // Check if it's a downgrade by looking at the plan
-        const planItem = plan.find(p => p.package === change.package);
-        if (planItem && planItem.action === 'downgrade') {
-          result.summary.packagesDowngraded++;
-        } else {
-          result.summary.packagesUpgraded++;
-        }
+        // No explicit action on the plan item: fall back to version comparison.
+        result.summary.packagesUpgraded++;
       }
     }
 

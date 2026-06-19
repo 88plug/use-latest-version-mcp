@@ -100,10 +100,10 @@ describe('UpgradeValidator', () => {
       expect(report.warnings.length).toBeGreaterThan(0);
     });
 
-    it('should detect minor version change', async () => {
+    it('should not flag a minor version change as breaking', async () => {
+      // A minor bump is backward-compatible under semver, so it is not a breaking change.
       const report = await validator.validateUpgrade('express', '4.18.0', '4.19.0');
-      expect(report.breakingChanges.length).toBeGreaterThan(0);
-      expect(report.breakingChanges[0].type).toBe('minor');
+      expect(report.breakingChanges.length).toBe(0);
     });
 
     it('should not detect breaking change for patch version', async () => {
@@ -269,10 +269,10 @@ describe('UpgradeValidator', () => {
       expect(breaking.toVersion).toBe('5.0.0');
     });
 
-    it('should detect minor version change', () => {
+    it('should not detect a minor version change as breaking', () => {
+      // Minor bumps are backward-compatible under semver: detectBreakingChange returns null.
       const breaking = validator.detectBreakingChange('express', '4.18.0', '4.19.0');
-      expect(breaking).not.toBeNull();
-      expect(breaking.type).toBe('minor');
+      expect(breaking).toBeNull();
     });
 
     it('should not detect breaking change for patch version', () => {
@@ -484,8 +484,9 @@ describe('UpgradeValidator', () => {
       expect(validator.satisfiesConstraint('4.19.0', '^4.18.0')).toBe(true);
     });
 
-    it('should not violate caret constraint for major version', () => {
-      expect(validator.satisfiesConstraint('5.0.0', '^4.18.0')).toBe(true);
+    it('rejects a major version that violates a caret constraint', () => {
+      // ^4.18.0 means >=4.18.0 <5.0.0, so 5.0.0 must NOT satisfy it.
+      expect(validator.satisfiesConstraint('5.0.0', '^4.18.0')).toBe(false);
     });
 
     it('should satisfy tilde constraint', () => {
