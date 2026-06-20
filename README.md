@@ -11,6 +11,8 @@ apply upgrade pipeline.
 [![registries](https://img.shields.io/badge/registries-39-1f2328?style=flat-square)](https://88plug.github.io/use-latest-version-mcp/reference/registries/)
 [![tools](https://img.shields.io/badge/MCP%20tools-15-1f2328?style=flat-square)](https://88plug.github.io/use-latest-version-mcp/reference/tools/)
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/88plug/use-latest-version-mcp)
+
 [Docs](https://88plug.github.io/use-latest-version-mcp/) · [Tool reference](https://88plug.github.io/use-latest-version-mcp/reference/tools/) · [Registries](https://88plug.github.io/use-latest-version-mcp/reference/registries/)
 
 </div>
