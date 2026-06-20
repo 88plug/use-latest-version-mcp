@@ -60,6 +60,30 @@ malformed skill/agent frontmatter.
 - Don't commit `build/` — the launcher compiles on first run.
 - Commit messages: imperative mood; no AI/assistant attribution.
 
+## Maintaining the DeepWiki index
+
+The README's "Ask DeepWiki" badge points at `deepwiki.com/88plug/use-latest-version-mcp`.
+Researched against Cognition's API, there are exactly two ways to populate it:
+
+1. **Public page (the badge):** generated on demand; its trigger is gated by a
+   Google reCAPTCHA, so there is **no key-free, captcha-free HTTP endpoint**. The
+   public status endpoint is open: `GET https://api.devin.ai/ada/public_repo_indexing_status?repo_name=<owner>/<repo>`.
+   Use the helper, which runs a real browser (reCAPTCHA usually passes invisibly;
+   if challenged, solve it once), then polls that status API until done:
+
+   ```sh
+   npm i -D playwright && npx playwright install chromium
+   node scripts/index-deepwiki.mjs            # uses CHROME_USER_DATA_DIR if set
+   ```
+
+2. **Private Devin org DeepWiki (different surface, paid):** fully scriptable —
+   `PUT https://api.devin.ai/v3beta1/organizations/{org}/repositories/{path}/indexing`
+   with `Authorization: Bearer cog_…` (a Devin service user with
+   `IndexOrgRepositories`). This does **not** populate the free public page.
+
+Because the public trigger is captcha-gated, this is a one-time/occasional manual
+run, not CI. Re-running it refreshes the wiki after major changes.
+
 ## License of contributions
 
 By contributing you agree your contribution is licensed under the project's
