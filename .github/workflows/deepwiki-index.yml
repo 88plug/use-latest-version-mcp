@@ -1,0 +1,71 @@
+name: DeepWiki Index
+
+# Keep the DeepWiki documentation fresh on the same cadence as releases/updates.
+#
+# Reality (researched against Cognition's API):
+#   - The FREE PUBLIC page (deepwiki.com/<owner>/<repo>, the README badge) is
+#     triggered through a reCAPTCHA-gated endpoint, so it CANNOT be started from
+#     CI. This workflow only *reports* its public status (open status endpoint).
+#     To (re)generate the public page, run `node scripts/index-deepwiki.mjs`
+#     locally once (a real browser; reCAPTCHA usually passes invisibly).
+#   - The AUTHENTICATED Devin org API CAN run in CI. Add repo secrets
+#     DEVIN_API_KEY (a `cog_…` service-user token with IndexOrgRepositories) and
+#     DEVIN_ORG_ID, and this workflow re-indexes on every release/update.
+#     Note: that API feeds your private Devin org wiki, which is a separate
+#     surface from the free public badge.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "docs/**"
+      - "README.md"
+      - ".claude-plugin/**"
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deepwiki-index
+  cancel-in-progress: true
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-index via Devin API (only if a Devin key is configured)
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEVIN_API_KEY:-}" ] || [ -z "${DEVIN_ORG_ID:-}" ]; then
+            echo "::notice title=DeepWiki::DEVIN_API_KEY / DEVIN_ORG_ID not set — skipping authenticated re-index (public badge is captcha-gated and handled by scripts/index-deepwiki.mjs)."
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/idx.json -w '%{http_code}' -X PUT \
+            "https://api.devin.ai/v3beta1/organizations/${DEVIN_ORG_ID}/repositories/${REPO}/indexing" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}') || true
+          echo "Devin index API -> HTTP ${code}"
+          cat /tmp/idx.json 2>/dev/null || true
+          if [ "${code}" != "200" ]; then
+            echo "::warning title=DeepWiki::index request returned HTTP ${code} (check DEVIN_ORG_ID / repository_path format for your org)."
+          fi
+
+      - name: Report public DeepWiki status
+        run: |
+          set -euo pipefail
+          s=$(curl -sS --max-time 20 "https://api.devin.ai/ada/public_repo_indexing_status?repo_name=${{ github.repository }}" || echo '{}')
+          echo "public DeepWiki status: ${s}"
+          if echo "${s}" | grep -qiE 'indexed|complete|ready|success'; then
+            echo "::notice title=DeepWiki::public wiki is indexed."
+          else
+            echo "::notice title=DeepWiki::public wiki not indexed yet — run 'node scripts/index-deepwiki.mjs' once (reCAPTCHA-gated, cannot run in CI)."
+          fi
