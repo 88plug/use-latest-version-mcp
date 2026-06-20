@@ -17,12 +17,26 @@
   "keywords": [
     "mcp",
     "package-versions",
+    "dependencies",
     "npm",
     "pypi",
+    "maven",
+    "registries",
+    "outdated",
+    "upgrade",
+    "semver",
     "package-manager"
   ],
-  "author": "Andrew",
-  "license": "MIT",
+  "author": "88plug <andrew@88plug.com>",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://github.com/88plug/use-latest-version-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/88plug/use-latest-version-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/88plug/use-latest-version-mcp/issues"
+  },
   "files": [
     "build"
   ],

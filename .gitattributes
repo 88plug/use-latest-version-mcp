@@ -1,0 +1,6 @@
+# Normalize line endings; keep shell scripts LF so the launcher runs everywhere.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.gz binary

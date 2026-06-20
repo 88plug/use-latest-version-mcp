@@ -21,3 +21,6 @@ test-project-scan/
 test-upgrade-applier-temp/
 test-temp-*/
 .dependency-backups/
+
+# MkDocs build output
+site/

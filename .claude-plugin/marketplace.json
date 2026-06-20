@@ -1,0 +1,35 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "use-latest-version",
+  "description": "Always-current package versions across 39 registries, with a safe scan -> optimize -> validate -> apply upgrade pipeline.",
+  "owner": {
+    "name": "88plug",
+    "email": "andrew@88plug.com"
+  },
+  "plugins": [
+    {
+      "name": "use-latest-version",
+      "source": ".",
+      "displayName": "Use Latest Version",
+      "description": "Stop suggesting stale package versions from training data. 15 MCP tools over 39 package registries: latest-version + package-info lookups, semver compare, install-command generation, batch checks, project dependency scanning, outdated reports, conflict detection, compatibility checks, and a scan -> optimize -> validate -> apply upgrade pipeline that edits manifests with dry-run + automatic backups by default. Local-first, no API key required.",
+      "author": {
+        "name": "88plug",
+        "email": "andrew@88plug.com"
+      },
+      "homepage": "https://github.com/88plug/use-latest-version-mcp",
+      "license": "FSL-1.1-ALv2",
+      "category": "productivity",
+      "tags": [
+        "type:mcp",
+        "package-versions",
+        "dependencies",
+        "npm",
+        "pypi",
+        "registries",
+        "outdated",
+        "upgrade",
+        "mcp"
+      ]
+    }
+  ]
+}

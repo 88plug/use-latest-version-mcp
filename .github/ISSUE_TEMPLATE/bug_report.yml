@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible problem in use-latest-version-mcp.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact tool call(s) and arguments, or commands, that trigger it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: use-latest-version-mcp version
+      description: Output of `claude plugin list` (or the commit you are on).
+    validations:
+      required: false
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node.js version (`node -v`), transport (stdio/http), and the registry involved if relevant.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant stderr from the launcher / server. Redact anything sensitive.
+      render: shell
+    validations:
+      required: false

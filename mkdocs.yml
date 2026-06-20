@@ -1,0 +1,27 @@
+site_name: use-latest-version-mcp
+site_description: Always-current package versions across 39 registries, plus a safe scan/optimize/validate/apply upgrade pipeline, as an MCP server.
+site_author: 88plug
+use_directory_urls: true
+strict: true
+
+theme:
+  name: readthedocs
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+  - Getting Started: getting-started.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Tool Reference: reference/tools.md
+  - Supported Registries: reference/registries.md
+  - FAQ: faq.md
+  - Changelog: changelog.md

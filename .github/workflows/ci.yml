@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Node test suites
+        run: |
+          set -e
+          for t in \
+            test-compatibility.js \
+            test-conflict-resolver.js \
+            test-project-scanner.js \
+            test-server-factory.js \
+            test-global-version-optimizer.js \
+            test-write-path.js \
+            test-dependency-parsers.js \
+            test-lock-file-parsers.js; do
+            echo "== $t =="
+            node "$t"
+          done
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Bun test suites
+        run: bun test test-upgrade-applier.test.js test-upgrade-validator.test.js
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build docs (strict)
+        run: |
+          python -m pip install --upgrade pip mkdocs
+          mkdocs build --strict

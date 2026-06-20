@@ -1,0 +1,21 @@
+{
+  "name": "use-latest-version",
+  "source": {
+    "source": "github",
+    "repo": "88plug/use-latest-version-mcp"
+  },
+  "description": "Stop suggesting stale package versions from training data. 15 MCP tools over 39 package registries: latest-version + package-info lookups, semver compare, install-command generation, batch checks, project dependency scanning, outdated reports, conflict detection, compatibility checks, and a scan -> optimize -> validate -> apply upgrade pipeline that edits manifests with dry-run + automatic backups by default. Local-first, no API key required.",
+  "category": "productivity",
+  "tags": [
+    "type:mcp",
+    "package-versions",
+    "dependencies",
+    "npm",
+    "pypi",
+    "registries",
+    "outdated",
+    "upgrade",
+    "mcp"
+  ],
+  "homepage": "https://github.com/88plug/use-latest-version-mcp"
+}
