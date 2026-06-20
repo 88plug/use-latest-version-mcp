@@ -3,30 +3,31 @@
  * index-deepwiki.mjs — trigger DeepWiki indexing for one or many public repos
  * (the page each README's "Ask DeepWiki" badge links to).
  *
- * The honest mechanics (verified against Cognition's API):
- *   - The PUBLIC deepwiki.com/<owner>/<repo> page is generated on demand and its
- *     trigger is gated by reCAPTCHA v2 — there is NO key-free HTTP endpoint and no
- *     public tool that bypasses it. Only the read endpoints are open:
- *       GET https://api.devin.ai/ada/public_repo_indexing_status?repo_name=o/r
- *       GET https://api.devin.ai/ada/list_public_indexes?search_repo=o/r
- *   - reCAPTCHA v2 passes INVISIBLY for a genuine, trusted browser (your real
- *     Chrome profile + residential IP). So run this ON YOUR MACHINE: it clicks
- *     "Index Repository" and the captcha typically never challenges → hands-free.
- *     From a datacenter/CI IP it WILL challenge (by design) — can't be automated
- *     there without a captcha-solving service, which this intentionally does not do.
+ * Mechanics, reverse-engineered from deepwiki.com's frontend and verified:
+ *   - Trigger:  POST https://api.devin.ai/ada/index_public_repo
+ *                 ?repo_name=<owner/repo>&email_to_notify=<email>&recaptcha_token=<tok>
+ *   - Status:   GET  https://api.devin.ai/ada/public_repo_indexing_status?repo_name=<o/r>
+ *   - The recaptcha_token is MANDATORY server-side (no token => HTTP 400
+ *     {"detail":"reCAPTCHA validation failed"}). It is reCAPTCHA **v2 invisible**
+ *     (site key 6LeK1G0rAAAAAGVDKn-92dkphJzZvEobSLCyZJg4): on a TRUSTED browser
+ *     it returns a token via callback with NO challenge (so this runs hands-free);
+ *     on a datacenter/headless/low-reputation context it falls back to an image
+ *     challenge, which this script does NOT try to solve (that would be defeating
+ *     an anti-bot control). => run this on YOUR machine / real profile.
  *   - After the first index, DeepWiki re-crawls on its own; no per-commit retrigger.
  *
- * Run all marketplace repos in one trusted session (best: your real profile):
+ * Index every marketplace repo in one trusted session (best: real Chrome profile):
  *   CHROME_USER_DATA_DIR="$HOME/.config/google-chrome" REPO=all \
  *     node scripts/index-deepwiki.mjs
- * Or one/some repos:
+ * One/some repos:
  *   REPO=88plug/use-latest-version-mcp node scripts/index-deepwiki.mjs
- *   REPO=88plug/amnesia,88plug/searxng-mcp node scripts/index-deepwiki.mjs
  *
- * Requires Playwright (not a project dependency — install on demand):
+ * Requires Playwright (not a project dependency):
  *   npm i -D playwright && npx playwright install chromium
  */
 
+const API = 'https://api.devin.ai';
+const SITEKEY = '6LeK1G0rAAAAAGVDKn-92dkphJzZvEobSLCyZJg4';
 const ALL = [
   'claude-code-plugins', 'searxng-mcp', 'total-recall', 'amnesia', 'deepwiki',
   'scientific-method', 'drive-remote-terminal', 'project-prospector', 'screen-mcp',
@@ -38,43 +39,73 @@ const REPOS = arg.toLowerCase() === 'all' ? ALL : arg.split(',').map((s) => s.tr
 const EMAIL = process.env.EMAIL || 'andrew@88plug.com';
 const HEADLESS = process.env.HEADLESS === '1';
 const USER_DATA_DIR = process.env.CHROME_USER_DATA_DIR || '';
-const PER_REPO_TIMEOUT_MS = parseInt(process.env.INDEX_TIMEOUT_MS || '720000', 10); // 12 min
+const PER_REPO_TIMEOUT_MS = parseInt(process.env.INDEX_TIMEOUT_MS || '720000', 10);
 
 const DONE = new Set(['indexed', 'completed', 'complete', 'ready', 'success', 'done']);
 const log = (...a) => console.log('[deepwiki]', ...a);
 
 async function statusOf(repo) {
   try {
-    const r = await fetch(`https://api.devin.ai/ada/public_repo_indexing_status?repo_name=${encodeURIComponent(repo)}`,
+    const r = await fetch(`${API}/ada/public_repo_indexing_status?repo_name=${encodeURIComponent(repo)}`,
       { headers: { accept: 'application/json' } });
     if (!r.ok) return `http_${r.status}`;
-    const j = await r.json();
-    return (j && (j.status ?? j.state)) || 'unknown';
-  } catch (e) {
-    return `error:${e.message}`;
-  }
+    return ((await r.json())?.status) || 'unknown';
+  } catch (e) { return `error:${e.message}`; }
+}
+
+// Get a reCAPTCHA v2-invisible token from within the deepwiki.com page context
+// (the token is domain-bound, so it must be minted on that origin). Resolves null
+// if the widget challenges (low score) or times out.
+async function getToken(page) {
+  return page.evaluate(({ sitekey, timeoutMs }) => new Promise((resolve) => {
+    const done = (v) => resolve(v || null);
+    const t = setTimeout(() => done(null), timeoutMs);
+    const run = () => {
+      try {
+        const div = document.createElement('div');
+        div.style.display = 'none';
+        document.body.appendChild(div);
+        const id = window.grecaptcha.render(div, {
+          sitekey, size: 'invisible',
+          callback: (tok) => { clearTimeout(t); done(tok); },
+          'error-callback': () => { clearTimeout(t); done(null); },
+        });
+        window.grecaptcha.execute(id);
+      } catch { clearTimeout(t); done(null); }
+    };
+    if (window.grecaptcha && window.grecaptcha.render) {
+      window.grecaptcha.ready ? window.grecaptcha.ready(run) : run();
+    } else { done(null); }
+  }), { sitekey: SITEKEY, timeoutMs: 25000 });
 }
 
 async function triggerOne(page, repo) {
   let s = await statusOf(repo);
   if (DONE.has(String(s).toLowerCase())) { log(`${repo}: already indexed`); return true; }
 
-  log(`${repo}: opening deepwiki…`);
+  log(`${repo}: loading deepwiki + minting invisible token…`);
   await page.goto(`https://deepwiki.com/${repo}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1500); // let grecaptcha load
 
-  const email = page.getByRole('textbox', { name: /email/i });
-  await email.waitFor({ timeout: 20000 }).catch(() => {});
-  if (await email.count()) { await email.fill(EMAIL); }
-  const btn = page.getByRole('button', { name: /index repository/i });
-  if (await btn.count()) { await btn.click().catch(() => {}); log(`${repo}: clicked Index Repository`); }
-  else { log(`${repo}: no Index button (already indexing?)`); }
-
-  // Detect a visible captcha challenge (means this browser/IP is not trusted).
-  const captcha = page.frameLocator('iframe[src*="recaptcha"]');
-  const challenged = await captcha.locator('.rc-imageselect, table').first().isVisible().catch(() => false);
-  if (challenged) {
-    if (HEADLESS) { log(`${repo}: reCAPTCHA challenged in headless mode — rerun on your real browser/profile.`); return false; }
-    log(`${repo}: solve the CAPTCHA shown in the window to start indexing…`);
+  const token = await getToken(page);
+  if (token) {
+    // POST from the page (same-origin behavior, matches the site exactly).
+    const res = await page.evaluate(async ({ api, repo, email, token }) => {
+      const u = `${api}/ada/index_public_repo?repo_name=${encodeURIComponent(repo)}`
+        + `&email_to_notify=${encodeURIComponent(email)}&recaptcha_token=${encodeURIComponent(token)}`;
+      const r = await fetch(u, { method: 'POST' });
+      return { status: r.status, body: await r.text().catch(() => '') };
+    }, { api: API, repo, email: EMAIL, token });
+    log(`${repo}: index_public_repo -> HTTP ${res.status} ${res.body.slice(0, 120)}`);
+  } else {
+    // No silent token (challenged / untrusted context): fall back to the page form
+    // so a human can solve the image challenge if running headful.
+    log(`${repo}: no silent token (low-reputation context). Falling back to the form…`);
+    const email = page.getByRole('textbox', { name: /email/i });
+    if (await email.count()) await email.fill(EMAIL).catch(() => {});
+    const btn = page.getByRole('button', { name: /index repository/i });
+    if (await btn.count()) await btn.click().catch(() => {});
+    if (!HEADLESS) log(`${repo}: solve the CAPTCHA in the window if one appears.`);
   }
 
   const deadline = Date.now() + PER_REPO_TIMEOUT_MS;
@@ -92,10 +123,7 @@ async function main() {
   log(`repos: ${REPOS.join(', ')}`);
   let chromium;
   try { ({ chromium } = await import('playwright')); }
-  catch {
-    console.error('\nPlaywright not installed:\n  npm i -D playwright && npx playwright install chromium\n');
-    process.exit(2);
-  }
+  catch { console.error('\nPlaywright not installed:\n  npm i -D playwright && npx playwright install chromium\n'); process.exit(2); }
 
   const opts = { headless: HEADLESS, channel: 'chrome' };
   let ctx, page;
