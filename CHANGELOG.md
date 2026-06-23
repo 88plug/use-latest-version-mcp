@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The published plugin is
 versioned CalVer (`YEAR.MONTH.BUILD`), auto-stamped from the commit count by the
 88plug marketplace, so each push is a uniquely identifiable release.
 
-## Unreleased
+## 2026.6.23
 
 ### Added
 - Packaged as an 88plug Claude Code plugin: `.claude-plugin/plugin.json`

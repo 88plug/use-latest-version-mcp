@@ -7,20 +7,31 @@
     "name": "88plug",
     "email": "andrew@88plug.com"
   },
+  "version": "2026.6.23",
   "license": "FSL-1.1-ALv2",
   "homepage": "https://github.com/88plug/use-latest-version-mcp",
   "repository": "https://github.com/88plug/use-latest-version-mcp.git",
   "keywords": [
+    "claude-code",
+    "claude",
+    "anthropic",
+    "ai",
+    "llm",
+    "ai-agents",
+    "developer-tools",
+    "productivity",
+    "automation",
+    "cli",
+    "claude-code-plugin",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
     "package-versions",
     "dependencies",
     "npm",
-    "pypi",
-    "maven",
     "registries",
     "outdated",
-    "upgrade",
-    "semver",
-    "mcp"
+    "semver"
   ],
   "mcpServers": {
     "use-latest-version": {

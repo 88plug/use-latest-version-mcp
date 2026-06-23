@@ -1,18 +1,43 @@
 site_name: use-latest-version-mcp
 site_description: Always-current package versions across 39 registries, plus a safe scan/optimize/validate/apply upgrade pipeline, as an MCP server.
 site_author: 88plug
+site_url: https://88plug.github.io/use-latest-version-mcp/
+repo_url: https://github.com/88plug/use-latest-version-mcp
+repo_name: 88plug/use-latest-version-mcp
+edit_uri: edit/main/docs/
 use_directory_urls: true
 strict: true
 
 theme:
-  name: readthedocs
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
 
 markdown_extensions:
   - admonition
   - attr_list
+  - md_in_html
   - def_list
   - footnotes
   - tables
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.details
   - toc:
       permalink: true
 

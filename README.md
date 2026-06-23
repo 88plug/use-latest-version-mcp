@@ -6,11 +6,10 @@
 assistants — across 39 registries — plus a safe scan → optimize → validate →
 apply upgrade pipeline.
 
-[![marketplace](https://img.shields.io/badge/marketplace-88plug-1f2328?style=flat-square)](https://github.com/88plug/claude-code-plugins)
-[![license](https://img.shields.io/badge/license-FSL--1.1--ALv2-1f2328?style=flat-square)](./LICENSE.md)
-[![registries](https://img.shields.io/badge/registries-39-1f2328?style=flat-square)](https://88plug.github.io/use-latest-version-mcp/reference/registries/)
-[![tools](https://img.shields.io/badge/MCP%20tools-15-1f2328?style=flat-square)](https://88plug.github.io/use-latest-version-mcp/reference/tools/)
-
+[![plugin-validate](https://github.com/88plug/use-latest-version-mcp/actions/workflows/plugin-validate.yml/badge.svg)](https://github.com/88plug/use-latest-version-mcp/actions/workflows/plugin-validate.yml)
+[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat)](LICENSE.md)
+[![Docs](https://img.shields.io/badge/docs-online-blue?style=flat)](https://88plug.github.io/use-latest-version-mcp/)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2?style=flat)](https://github.com/88plug/claude-code-plugins)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/88plug/use-latest-version-mcp)
 
 [Docs](https://88plug.github.io/use-latest-version-mcp/) · [Tool reference](https://88plug.github.io/use-latest-version-mcp/reference/tools/) · [Registries](https://88plug.github.io/use-latest-version-mcp/reference/registries/)
