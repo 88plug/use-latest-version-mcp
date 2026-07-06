@@ -3,15 +3,16 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -48,10 +49,10 @@ jobs:
         run: bun test test-upgrade-applier.test.js test-upgrade-validator.test.js
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-python@v6.3.0
         with:
           python-version: "3.13"
       - name: Build docs (strict)

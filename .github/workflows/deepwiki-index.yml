@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   index:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Re-index via Devin API (only if a Devin key is configured)
         env:
