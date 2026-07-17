@@ -214,11 +214,20 @@ const PLAN_ITEM_SCHEMA = {
   required: ['package', 'suggestedVersion', 'action', 'affectedFiles'],
 } as const;
 
+const RO_NET = { readOnlyHint: true, destructiveHint: false, openWorldHint: true } as const;
+const RO_LOCAL = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const RW_LOCAL = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
 const TOOL_DEFINITIONS = [
   {
     name: 'get_latest_version',
     title: 'Get Latest Version',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Get the latest version of a package from a registry. Use when suggesting package installations or imports so you cite a current version. Returns { package, registry, latest_version, ... }.',
     inputSchema: {
       type: 'object',
@@ -239,7 +248,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'get_package_info',
     title: 'Get Package Info',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Get detailed package metadata: latest version, description, homepage, license. Use when you need more than a bare version number. Returns structured package info for the given registry.',
     inputSchema: {
       type: 'object',
@@ -260,7 +269,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'get_install_command',
     title: 'Get Install Command',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Get a ready-to-run install command for a package at its latest version (npm/pip/cargo/etc.). Use when you are about to tell the user how to install a dependency. Returns the shell command string and resolved version.',
     inputSchema: {
       type: 'object',
@@ -286,7 +295,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'compare_versions',
     title: 'Compare Versions',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Compare a current version with the latest available version to determine if an update is needed. Use when deciding whether to recommend an upgrade. Uses semantic-version comparison (handles v-prefixes). Returns whether current is behind, equal to, or ahead of latest, plus both versions.',
     inputSchema: {
       type: 'object',
@@ -311,7 +320,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'check_multiple_packages',
     title: 'Check Multiple Packages',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Batch-check latest versions for multiple packages across registries. Use when auditing a dependency list in one call. Returns per-package latest version and status.',
     inputSchema: {
       type: 'object',
@@ -340,7 +349,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'check_compatibility',
     title: 'Check Compatibility',
-    annotations: { readOnlyHint: true },
+    annotations: RO_LOCAL,
     description: 'Check if a package version is compatible with specified dependency constraints. Use when verifying whether an upgrade will break existing dependencies. Returns compatibility result and any violated constraints.',
     inputSchema: {
       type: 'object',
@@ -378,7 +387,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'detect_conflicts',
     title: 'Detect Conflicts',
-    annotations: { readOnlyHint: true },
+    annotations: RO_LOCAL,
     description: 'Detect version conflicts in a list of dependencies. Use when the same package appears with incompatible version constraints. Returns conflict list with the clashing constraints and sources.',
     inputSchema: {
       type: 'object',
@@ -412,7 +421,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'suggest_upgrade_path',
     title: 'Suggest Upgrade Path',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Generate a step-by-step upgrade path from current version to target version, considering intermediate versions that maintain compatibility. Use when a major jump needs a safer multi-step plan. Returns ordered upgrade steps.',
     inputSchema: {
       type: 'object',
@@ -457,7 +466,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'find_compatible_version',
     title: 'Find Compatible Version',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Find a version of a package that satisfies all specified dependency constraints. Use when resolving version conflicts to a single compatible pin. Returns the compatible version or an empty result if none.',
     inputSchema: {
       type: 'object',
@@ -496,7 +505,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'scan_project',
     title: 'Scan Project',
-    annotations: { readOnlyHint: true },
+    annotations: RO_LOCAL,
     description: 'Scan a local project directory for dependency manifests (package.json, requirements.txt, go.mod, Cargo.toml, Gemfile, pom.xml, pyproject.toml) and lock files. Use to inventory a project before checking for updates. Returns every declared dependency with registry, version/constraint, and source file.',
     inputSchema: {
       type: 'object',
@@ -522,7 +531,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'check_outdated',
     title: 'Check Outdated',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Scan a local project and check every dependency against its registry. Use to produce an update report for a whole project at once. Returns which packages are outdated, with latest version, upgrade type (major/minor/patch), and estimated risk.',
     inputSchema: {
       type: 'object',
@@ -548,7 +557,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'resolve_conflicts',
     title: 'Resolve Conflicts',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Scan a local project, detect dependency version conflicts (same package at incompatible versions across files), and suggest a single compatible resolution for each. Use when manifests disagree on versions. Returns conflict list with suggested upgrade/downgrade/keep action and risk. Read-only — does not modify files.',
     inputSchema: {
       type: 'object',
@@ -579,7 +588,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'optimize_versions',
     title: 'Optimize Versions',
-    annotations: { readOnlyHint: true },
+    annotations: RO_NET,
     description: 'Scan a local project and produce a global optimization plan for every dependency (keep/upgrade/downgrade/remove) that maximizes compatibility and currency. Use when planning a bulk update. Returns a plan (with risk ratings) you can pass to validate_upgrade_plan or apply_upgrades. Read-only.',
     inputSchema: {
       type: 'object',
@@ -610,7 +619,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'validate_upgrade_plan',
     title: 'Validate Upgrade Plan',
-    annotations: { readOnlyHint: true },
+    annotations: RO_LOCAL,
     description: 'Validate a proposed upgrade plan (e.g. from optimize_versions) before applying it. Use as a pre-flight gate before apply_upgrades. Checks major bumps, circular dependencies, and constraint violations. Returns whether the plan is safe plus per-item issues. Read-only.',
     inputSchema: {
       type: 'object',
@@ -641,7 +650,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'apply_upgrades',
     title: 'Apply Upgrades',
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    annotations: RW_LOCAL,
     description: 'Apply an upgrade plan to the project\'s dependency manifests (package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, etc.). Use after validate_upgrade_plan when the human wants files written. DEFAULTS TO A DRY RUN (preview only): pass dry_run=false to write. When writing, timestamped backups go under .dependency-backups (unless create_backup=false); per-file changes roll back on error. Returns preview or write results.',
     inputSchema: {
       type: 'object',
