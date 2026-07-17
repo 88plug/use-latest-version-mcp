@@ -33,8 +33,8 @@ import { checkOutdated } from './outdated-checker.js';
 import { resolveConflicts } from './conflict-resolver.js';
 import { optimizeVersions, type OptimizationPlan } from './global-version-optimizer.js';
 import { UpgradeValidator } from './upgrade-validator.js';
-import { applyUpgrades } from './upgrade-applier.js';
-import { isAbsolute, relative } from 'node:path';
+import { applyUpgrades, resolveInsideProject } from './upgrade-applier.js';
+import { relative, resolve } from 'node:path';
 
 export const SERVER_INFO = {
   name: 'use-latest-version-mcp-server',
@@ -1277,14 +1277,17 @@ Please try again or use a different registry.`,
             create_backup?: boolean;
           };
 
-          // The applier resolves each affectedFiles entry against project_path, so
-          // normalize any absolute paths (e.g. the `source` paths optimize_versions
-          // emits) back to project-relative; relative entries pass through unchanged.
+          // Confine every affectedFiles path to project_path (reject ../ escapes).
+          // Absolute paths (e.g. source paths from optimize_versions) become
+          // project-relative only if they resolve inside the project root.
+          const root = resolve(project_path);
           const normalizedPlan: OptimizationPlan[] = plan.map((item) => ({
             ...item,
-            affectedFiles: (item.affectedFiles || []).map((f) =>
-              isAbsolute(f) ? relative(project_path, f) : f
-            ),
+            affectedFiles: (item.affectedFiles || []).map((f) => {
+              // Throws if path escapes project root
+              const abs = resolveInsideProject(root, f);
+              return relative(root, abs);
+            }),
           }));
 
           const result = await applyUpgrades(project_path, normalizedPlan, {

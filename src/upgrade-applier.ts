@@ -4,13 +4,32 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, unlinkSync } from 'fs';
-import { join, basename, relative } from 'path';
+import { join, basename, relative, resolve, isAbsolute } from 'path';
 import { OptimizationPlan } from './global-version-optimizer.js';
 
 // Escape a string for safe interpolation into a RegExp (package names contain
 // '.', '-', etc. which are regex-significant).
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Resolve filePath under projectRoot; reject `..` / absolute escapes. */
+export function resolveInsideProject(projectRoot: string, filePath: string): string {
+  const root = resolve(projectRoot);
+  const candidate = isAbsolute(filePath)
+    ? resolve(filePath)
+    : resolve(root, filePath);
+  const rel = relative(root, candidate);
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(
+      `Path escapes project root: ${filePath} (resolved ${candidate}, root ${root})`
+    );
+  }
+  // Block null-byte and weird separators
+  if (filePath.includes('\0')) {
+    throw new Error(`Invalid path: ${filePath}`);
+  }
+  return candidate;
 }
 
 // ============================================================================
@@ -207,7 +226,7 @@ export class UpgradeApplier {
     filePath: string,
     changes: OptimizationPlan[]
   ): Promise<{ changes: UpgradeChange[]; diff: FileDiff }> {
-    const fullPath = join(this.options.projectPath, filePath);
+    const fullPath = resolveInsideProject(this.options.projectPath, filePath);
 
     if (!existsSync(fullPath)) {
       throw new Error(`File not found: ${filePath}`);
@@ -703,7 +722,7 @@ export class UpgradeApplier {
    * Validate changes before applying
    */
   async validateChanges(file: string, changes: UpgradeChange[]): Promise<boolean> {
-    const fullPath = join(this.options.projectPath, file);
+    const fullPath = resolveInsideProject(this.options.projectPath, file);
 
     if (!existsSync(fullPath)) {
       throw new Error(`File not found: ${file}`);
