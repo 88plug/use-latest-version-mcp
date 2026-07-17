@@ -287,7 +287,7 @@ const TOOL_DEFINITIONS = [
     name: 'compare_versions',
     title: 'Compare Versions',
     annotations: { readOnlyHint: true },
-    description: 'Compare a current version with the latest available version to determine if an update is needed. Uses semantic-version comparison, so it correctly handles v-prefixes and reports whether the current version is behind, equal to, or ahead of the latest.',
+    description: 'Compare a current version with the latest available version to determine if an update is needed. Use when deciding whether to recommend an upgrade. Uses semantic-version comparison (handles v-prefixes). Returns whether current is behind, equal to, or ahead of latest, plus both versions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -312,7 +312,7 @@ const TOOL_DEFINITIONS = [
     name: 'check_multiple_packages',
     title: 'Check Multiple Packages',
     annotations: { readOnlyHint: true },
-    description: 'Batch-check latest versions for multiple packages across registries. Use when auditing a dependency list. Returns per-package latest version and status.',
+    description: 'Batch-check latest versions for multiple packages across registries. Use when auditing a dependency list in one call. Returns per-package latest version and status.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -341,7 +341,7 @@ const TOOL_DEFINITIONS = [
     name: 'check_compatibility',
     title: 'Check Compatibility',
     annotations: { readOnlyHint: true },
-    description: 'Check if a package version is compatible with specified dependency constraints. Useful for verifying if an upgrade will break existing dependencies.',
+    description: 'Check if a package version is compatible with specified dependency constraints. Use when verifying whether an upgrade will break existing dependencies. Returns compatibility result and any violated constraints.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -379,7 +379,7 @@ const TOOL_DEFINITIONS = [
     name: 'detect_conflicts',
     title: 'Detect Conflicts',
     annotations: { readOnlyHint: true },
-    description: 'Detect version conflicts in a list of dependencies. Identifies when the same package is required with incompatible version constraints.',
+    description: 'Detect version conflicts in a list of dependencies. Use when the same package appears with incompatible version constraints. Returns conflict list with the clashing constraints and sources.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -413,7 +413,7 @@ const TOOL_DEFINITIONS = [
     name: 'suggest_upgrade_path',
     title: 'Suggest Upgrade Path',
     annotations: { readOnlyHint: true },
-    description: 'Generate a step-by-step upgrade path from current version to target version, considering intermediate versions that maintain compatibility.',
+    description: 'Generate a step-by-step upgrade path from current version to target version, considering intermediate versions that maintain compatibility. Use when a major jump needs a safer multi-step plan. Returns ordered upgrade steps.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -458,7 +458,7 @@ const TOOL_DEFINITIONS = [
     name: 'find_compatible_version',
     title: 'Find Compatible Version',
     annotations: { readOnlyHint: true },
-    description: 'Find a version of a package that satisfies all specified dependency constraints. Useful for resolving version conflicts.',
+    description: 'Find a version of a package that satisfies all specified dependency constraints. Use when resolving version conflicts to a single compatible pin. Returns the compatible version or an empty result if none.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -497,7 +497,7 @@ const TOOL_DEFINITIONS = [
     name: 'scan_project',
     title: 'Scan Project',
     annotations: { readOnlyHint: true },
-    description: 'Scan a local project directory for dependency manifests (package.json, requirements.txt, go.mod, Cargo.toml, Gemfile, pom.xml, pyproject.toml) and lock files, returning every declared dependency with its registry, version/constraint, and source file. Use this to inventory a project before checking for updates.',
+    description: 'Scan a local project directory for dependency manifests (package.json, requirements.txt, go.mod, Cargo.toml, Gemfile, pom.xml, pyproject.toml) and lock files. Use to inventory a project before checking for updates. Returns every declared dependency with registry, version/constraint, and source file.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -523,7 +523,7 @@ const TOOL_DEFINITIONS = [
     name: 'check_outdated',
     title: 'Check Outdated',
     annotations: { readOnlyHint: true },
-    description: 'Scan a local project and check every dependency against its registry to report which packages are outdated, including the latest version, upgrade type (major/minor/patch), and estimated risk. Use this to produce an update report for a whole project at once.',
+    description: 'Scan a local project and check every dependency against its registry. Use to produce an update report for a whole project at once. Returns which packages are outdated, with latest version, upgrade type (major/minor/patch), and estimated risk.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -549,7 +549,7 @@ const TOOL_DEFINITIONS = [
     name: 'resolve_conflicts',
     title: 'Resolve Conflicts',
     annotations: { readOnlyHint: true },
-    description: 'Scan a local project, detect dependency version conflicts (the same package required at incompatible versions across files), and suggest a single compatible resolution version for each conflict, with an upgrade/downgrade/keep action and risk. Read-only — it suggests, it does not modify files.',
+    description: 'Scan a local project, detect dependency version conflicts (same package at incompatible versions across files), and suggest a single compatible resolution for each. Use when manifests disagree on versions. Returns conflict list with suggested upgrade/downgrade/keep action and risk. Read-only — does not modify files.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -580,7 +580,7 @@ const TOOL_DEFINITIONS = [
     name: 'optimize_versions',
     title: 'Optimize Versions',
     annotations: { readOnlyHint: true },
-    description: 'Scan a local project and produce a global optimization plan: for every dependency, the suggested version and action (keep/upgrade/downgrade/remove) that maximizes cross-package compatibility and currency, each with a risk rating. Read-only — returns a plan you can pass to validate_upgrade_plan or apply_upgrades.',
+    description: 'Scan a local project and produce a global optimization plan for every dependency (keep/upgrade/downgrade/remove) that maximizes compatibility and currency. Use when planning a bulk update. Returns a plan (with risk ratings) you can pass to validate_upgrade_plan or apply_upgrades. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -611,7 +611,7 @@ const TOOL_DEFINITIONS = [
     name: 'validate_upgrade_plan',
     title: 'Validate Upgrade Plan',
     annotations: { readOnlyHint: true },
-    description: 'Validate a proposed upgrade plan (e.g. the plan returned by optimize_versions) before applying it. Checks each change for breaking (major) version bumps, circular dependencies, and constraint violations, and reports whether the plan is safe to apply. Read-only.',
+    description: 'Validate a proposed upgrade plan (e.g. from optimize_versions) before applying it. Use as a pre-flight gate before apply_upgrades. Checks major bumps, circular dependencies, and constraint violations. Returns whether the plan is safe plus per-item issues. Read-only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -642,7 +642,7 @@ const TOOL_DEFINITIONS = [
     name: 'apply_upgrades',
     title: 'Apply Upgrades',
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-    description: 'Apply an upgrade plan to the project\'s dependency manifests (package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, etc.). DEFAULTS TO A DRY RUN (preview only): pass dry_run=false to actually write changes to disk. When writing, a timestamped backup of each modified file is created under .dependency-backups (unless create_backup=false), and all changes for a file roll back automatically if an error occurs.',
+    description: 'Apply an upgrade plan to the project\'s dependency manifests (package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, etc.). Use after validate_upgrade_plan when the human wants files written. DEFAULTS TO A DRY RUN (preview only): pass dry_run=false to write. When writing, timestamped backups go under .dependency-backups (unless create_backup=false); per-file changes roll back on error. Returns preview or write results.',
     inputSchema: {
       type: 'object',
       properties: {
