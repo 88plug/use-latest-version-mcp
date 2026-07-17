@@ -1,5 +1,7 @@
 site_name: use-latest-version-mcp
-site_description: Always-current package versions across 39 registries, plus a safe scan/optimize/validate/apply upgrade pipeline, as an MCP server.
+site_description: >-
+  Always-current package versions across 39 registries, plus a safe
+  scan/optimize/validate/apply upgrade pipeline, as an MCP server.
 site_author: 88plug
 site_url: https://88plug.github.io/use-latest-version-mcp/
 repo_url: https://github.com/88plug/use-latest-version-mcp
@@ -42,11 +44,13 @@ markdown_extensions:
       permalink: true
 
 nav:
-  - Overview: index.md
-  - Getting Started: getting-started.md
-  - Installation: installation.md
-  - Configuration: configuration.md
-  - Tool Reference: reference/tools.md
-  - Supported Registries: reference/registries.md
+  - Home: index.md
+  - Start:
+    - Getting Started: getting-started.md
+    - Installation: installation.md
+    - Configuration: configuration.md
+  - Reference:
+    - Tools: reference/tools.md
+    - Registries: reference/registries.md
   - FAQ: faq.md
   - Changelog: changelog.md

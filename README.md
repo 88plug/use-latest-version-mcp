@@ -12,7 +12,10 @@ apply upgrade pipeline.
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2?style=flat)](https://github.com/88plug/claude-code-plugins)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/88plug/use-latest-version-mcp)
 
-[Docs](https://88plug.github.io/use-latest-version-mcp/) · [Tool reference](https://88plug.github.io/use-latest-version-mcp/reference/tools/) · [Registries](https://88plug.github.io/use-latest-version-mcp/reference/registries/)
+[Docs](https://88plug.github.io/use-latest-version-mcp/) ·
+[Install](https://88plug.github.io/use-latest-version-mcp/installation/) ·
+[Tools](https://88plug.github.io/use-latest-version-mcp/reference/tools/) ·
+[Registries](https://88plug.github.io/use-latest-version-mcp/reference/registries/)
 
 </div>
 
@@ -43,17 +46,24 @@ time — and can inventory, plan, and apply dependency upgrades for a whole repo
 
 ## What it does
 
-- **Look up** latest version + metadata, generate the install command, and
-  compare a version you hold against the latest (semver-aware).
-- **Scan** a project's manifests and lock files and report what's **outdated**
-  with upgrade type and risk.
-- **Reason**: detect conflicting constraints, check compatibility, find the
-  highest version satisfying constraints, build a multi-major upgrade path.
-- **Optimize → validate → apply**: a whole-project upgrade plan, validated for
-  breaking changes and cycles, written to the manifests — **dry-run by default,
-  with automatic backups** when it does write.
+| Capability | Tools |
+|---|---|
+| Lookup latest version + metadata, install command, semver compare | `get_latest_version`, `get_package_info`, `get_install_command`, `compare_versions`, `check_multiple_packages` |
+| Project scan and outdated report | `scan_project`, `check_outdated` |
+| Conflict / compatibility / upgrade path | `check_compatibility`, `detect_conflicts`, `find_compatible_version`, `suggest_upgrade_path`, `resolve_conflicts` |
+| Whole-project plan → validate → apply | `optimize_versions`, `validate_upgrade_plan`, `apply_upgrades` |
 
 15 tools in total — see the [Tool Reference](https://88plug.github.io/use-latest-version-mcp/reference/tools/).
+
+## Upgrade pipeline
+
+```text
+optimize_versions → validate_upgrade_plan → apply_upgrades (dry_run: true by default)
+```
+
+`apply_upgrades` is the only tool that writes. It defaults to a **dry run**,
+backs up every file it touches to `.dependency-backups/` when writing
+(`create_backup: true`), and rolls back on error. Pass `dry_run: false` to write.
 
 ## Registries
 
@@ -68,7 +78,8 @@ Ansible Galaxy, VS Code, WordPress, Jenkins. Full table with name formats:
 
 `apply_upgrades` is the only tool that writes to disk. It defaults to a **dry
 run**, backs up every file it touches to `.dependency-backups/`, and rolls back
-on error. Everything else is read-only.
+on error. Everything else is read-only. Optional `GITHUB_TOKEN` only raises
+GitHub rate limits for `github` / `ghcr` / `swift`.
 
 ## Development
 
@@ -81,6 +92,13 @@ node build/index.js stdio        # or: http
 # tests
 for t in test-*.js; do node "$t"; done
 bun test test-upgrade-applier.test.js test-upgrade-validator.test.js
+```
+
+Docs site (Material, strict):
+
+```sh
+pip install mkdocs mkdocs-material   # or a venv
+mkdocs build --strict
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).

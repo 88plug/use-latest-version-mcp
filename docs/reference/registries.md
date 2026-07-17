@@ -1,7 +1,10 @@
 # Supported Registries
 
-39 registries. Pass the registry id (or any listed alias) as the `registry`
-argument. The **package name format** column notes anything non-obvious.
+**39** registries. Pass the canonical registry id as the `registry` argument on
+lookup and project tools. Aliases below are also accepted by the registry client
+layer when resolving a package.
+
+The **package name format** column notes anything non-obvious.
 
 ## Language package managers
 
@@ -67,6 +70,12 @@ argument. The **package name format** column notes anything non-obvious.
 | `wordpress` | `wp` | plugin slug |
 | `jenkins` | | plugin id |
 
-!!! note
+!!! note "GitHub API rate limits"
     `github`, `ghcr`, and `swift` use the GitHub API. Set `GITHUB_TOKEN` to raise
-    rate limits (never required for basic use).
+    rate limits. It is never required for basic use.
+
+!!! tip "Resilience"
+    Every registry call has a per-request timeout (`REGISTRY_TIMEOUT_MS`, default
+    15s), response caching (`REGISTRY_CACHE_TTL_MS`, default 5 min), retries with
+    exponential backoff, and a per-registry circuit breaker. Client errors
+    (including 404) do not trip the breaker. See [Configuration](../configuration.md).

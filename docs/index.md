@@ -1,39 +1,89 @@
 # use-latest-version-mcp
 
-An MCP server that keeps an AI coding assistant from suggesting **stale package
-versions out of its training data**. It looks up the current version of any
-package — across 39 registries — and analyzes, plans, and (optionally) applies
-dependency upgrades for a whole project.
+Stop suggesting stale package versions. Live version truth for AI coding
+assistants — across **39 registries** — plus a safe scan → optimize → validate →
+apply upgrade pipeline.
+
+[![plugin-validate](https://github.com/88plug/use-latest-version-mcp/actions/workflows/plugin-validate.yml/badge.svg)](https://github.com/88plug/use-latest-version-mcp/actions/workflows/plugin-validate.yml)
+[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat)](https://github.com/88plug/use-latest-version-mcp/blob/main/LICENSE.md)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2?style=flat)](https://github.com/88plug/claude-code-plugins)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/88plug/use-latest-version-mcp)
+
+## Install
+
+```sh
+/plugin marketplace add 88plug/claude-code-plugins
+/plugin install use-latest-version@88plug
+```
+
+No environment variables. No API keys. On first launch the plugin compiles itself
+and starts the MCP server.
+
+!!! tip
+    Enable auto-update once (`/plugin` → Marketplaces → **88plug** → Enable
+    auto-update) and you always get the latest at startup.
+
+Manual, Docker, and generic MCP client setup: [Installation](installation.md).
+
+## Quickstart
+
+Ask the assistant:
+
+| You say | Tool |
+|---|---|
+| What's the latest `express` on npm? | `get_latest_version` |
+| Is `requests==2.28.0` current? | `compare_versions` |
+| Scan this project for outdated deps | `check_outdated` |
+| Plan an upgrade, show the diff first | `optimize_versions` → `validate_upgrade_plan` → `apply_upgrades` |
+
+The apply step is **dry-run by default**. You only write files when you pass
+`dry_run: false`. Details: [Getting Started](getting-started.md) and
+[Tool Reference](reference/tools.md#apply_upgrades).
 
 ## Why it exists
 
-A model's training data has a cutoff. Left to itself it will confidently write
-`express@4.18.0` or `requests==2.28.0` long after those are old. This server
-gives the model live ground truth: it asks the registry, every time.
+A model's training data has a cutoff. Left alone it writes versions that were
+current *then*. This server asks the registry every time — then can inventory,
+plan, and apply dependency upgrades for a whole repo.
 
 ## What it does
 
-- **Look up** the latest version and metadata for a package on any supported
-  registry, generate the exact install command, and compare against a version
-  you already have.
-- **Scan** a project for every dependency manifest and lock file, then report
-  what is **outdated** with an upgrade type (major/minor/patch) and risk.
-- **Reason** about versions: detect conflicting constraints, check whether a
-  version satisfies a set of constraints, find the highest version that does,
-  and build a step-by-step upgrade path through intermediate majors.
-- **Optimize -> validate -> apply**: produce a whole-project upgrade plan,
-  validate it for breaking changes and cycles, and write it to the manifests —
-  **dry-run by default, with automatic timestamped backups** when it does write.
+| Capability | Tools |
+|---|---|
+| Lookup latest version + metadata, install command, semver compare | `get_latest_version`, `get_package_info`, `get_install_command`, `compare_versions`, `check_multiple_packages` |
+| Project scan and outdated report | `scan_project`, `check_outdated` |
+| Conflict / compatibility / upgrade path | `check_compatibility`, `detect_conflicts`, `find_compatible_version`, `suggest_upgrade_path`, `resolve_conflicts` |
+| Whole-project plan → validate → apply | `optimize_versions`, `validate_upgrade_plan`, `apply_upgrades` |
 
-## Highlights
+**15 tools** total. Full argument lists: [Tool Reference](reference/tools.md).
 
-- **39 registries**, one consistent interface. See [Supported Registries](reference/registries.md).
-- **15 tools**. See the [Tool Reference](reference/tools.md).
-- **Local-first.** No API key required. An optional `GITHUB_TOKEN` only raises
-  GitHub's rate limit for the `github`/`ghcr` registries.
-- **Resilient.** Per-registry circuit breaker, request timeouts, response
-  caching, and retries with backoff.
-- **Safe writes.** The only tool that modifies files (`apply_upgrades`) defaults
-  to a dry run and backs up every file it touches.
+## Registries
 
-Start with [Getting Started](getting-started.md).
+39 registries behind one interface: npm, PyPI, Maven, crates.io, Go, RubyGems,
+NuGet, Packagist, Hex, pub.dev, CRAN, CPAN, Clojars, Hackage, Dub, LuaRocks,
+Elm, Swift, JSR, Conda, Bioconductor, Docker Hub, GHCR, Quay, GCR, GitHub,
+GitLab, Homebrew, AUR, Snap, Flatpak, Chocolatey, CocoaPods, Gradle, Terraform,
+Ansible Galaxy, VS Code, WordPress, Jenkins.
+
+Name formats and aliases: [Supported Registries](reference/registries.md).
+
+## Safety
+
+`apply_upgrades` is the **only** tool that writes to disk.
+
+- Defaults to **`dry_run: true`** (preview only)
+- When writing (`dry_run: false`), backs up each file under `.dependency-backups/`
+  unless `create_backup: false`
+- Rolls back a file's edits on error
+
+Everything else is read-only. Optional `GITHUB_TOKEN` only raises GitHub rate
+limits for `github` / `ghcr` / `swift` — never required.
+
+## Start here
+
+- [Getting Started](getting-started.md) — first calls and the upgrade pipeline
+- [Installation](installation.md) — plugin, standalone, Docker
+- [Configuration](configuration.md) — env vars, timeouts, HTTP transport
+- [Tool Reference](reference/tools.md) — all 15 tools
+- [Supported Registries](reference/registries.md) — 39 registries
+- [FAQ](faq.md)
