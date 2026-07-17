@@ -219,7 +219,7 @@ const TOOL_DEFINITIONS = [
     name: 'get_latest_version',
     title: 'Get Latest Version',
     annotations: { readOnlyHint: true },
-    description: 'Get the latest version of a package from a registry. Always use this tool when suggesting package installations or imports to ensure you have the most current version information.',
+    description: 'Get the latest version of a package from a registry. Use when suggesting package installations or imports so you cite a current version. Returns { package, registry, latest_version, ... }.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -240,7 +240,7 @@ const TOOL_DEFINITIONS = [
     name: 'get_package_info',
     title: 'Get Package Info',
     annotations: { readOnlyHint: true },
-    description: 'Get detailed information about a package including its latest version, description, and metadata. Use this when you need comprehensive package information.',
+    description: 'Get detailed package metadata: latest version, description, homepage, license. Use when you need more than a bare version number. Returns structured package info for the given registry.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -261,7 +261,7 @@ const TOOL_DEFINITIONS = [
     name: 'get_install_command',
     title: 'Get Install Command',
     annotations: { readOnlyHint: true },
-    description: 'Get the command to install a package with its latest version. This provides ready-to-use installation commands for different package managers.',
+    description: 'Get a ready-to-run install command for a package at its latest version (npm/pip/cargo/etc.). Use when you are about to tell the user how to install a dependency. Returns the shell command string and resolved version.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -312,7 +312,7 @@ const TOOL_DEFINITIONS = [
     name: 'check_multiple_packages',
     title: 'Check Multiple Packages',
     annotations: { readOnlyHint: true },
-    description: 'Check the latest versions of multiple packages at once. Efficient for checking several dependencies.',
+    description: 'Batch-check latest versions for multiple packages across registries. Use when auditing a dependency list. Returns per-package latest version and status.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -641,7 +641,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'apply_upgrades',
     title: 'Apply Upgrades',
-    annotations: { readOnlyHint: false, destructiveHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     description: 'Apply an upgrade plan to the project\'s dependency manifests (package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, etc.). DEFAULTS TO A DRY RUN (preview only): pass dry_run=false to actually write changes to disk. When writing, a timestamped backup of each modified file is created under .dependency-backups (unless create_backup=false), and all changes for a file roll back automatically if an error occurs.',
     inputSchema: {
       type: 'object',
