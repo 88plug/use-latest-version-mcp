@@ -87,7 +87,7 @@ run, not CI. Re-running it refreshes the wiki after major changes.
 ## License of contributions
 
 By contributing you agree your contribution is licensed under the project's
-[FSL-1.1-ALv2](./LICENSE.md). PRs to IP-bearing 88plug repos may trigger a CLA
+[FSL-1.1-ALv2](./LICENSE). PRs to IP-bearing 88plug repos may trigger a CLA
 check; sign once and future PRs auto-pass.
 
 Questions: open an issue or email andrew@88plug.com.
