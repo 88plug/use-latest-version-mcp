@@ -16,6 +16,14 @@ apply upgrade pipeline.
 /plugin install use-latest-version@88plug
 ```
 
+### Grok Build
+
+```text
+grok plugin marketplace add 88plug/claude-code-plugins
+grok plugin install use-latest-version@88plug --trust
+```
+
+
 No environment variables. No API keys. On first launch the plugin compiles itself
 and starts the MCP server.
 

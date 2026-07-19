@@ -24,6 +24,14 @@
 /plugin install use-latest-version@88plug
 ```
 
+### Grok Build
+
+```text
+grok plugin marketplace add 88plug/claude-code-plugins
+grok plugin install use-latest-version@88plug --trust
+```
+
+
 No environment variables. No API key. On first launch the Claude Code plugin compiles itself and starts the MCP server automatically.
 
 > [!TIP]
