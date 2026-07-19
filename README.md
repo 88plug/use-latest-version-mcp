@@ -2,7 +2,7 @@
 
 # use-latest-version-mcp
 
-**MCP server for always-current package versions and dependency upgrades** — 15 tools across 39 registries for Claude Code, AI coding assistants, and any Model Context Protocol client.
+**MCP server for always-current package versions and dependency upgrades** — 15 tools across 39 registries for Claude Code, Grok, and any Model Context Protocol client.
 
 [![plugin-validate](https://github.com/88plug/use-latest-version-mcp/actions/workflows/plugin-validate.yml/badge.svg)](https://github.com/88plug/use-latest-version-mcp/actions/workflows/plugin-validate.yml)
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat)](LICENSE)
@@ -18,6 +18,8 @@
 </div>
 
 ## Install
+
+### Claude Code
 
 ```text
 /plugin marketplace add 88plug/claude-code-plugins
@@ -66,7 +68,7 @@ You get live registry answers in the same turn — not versions from training da
 
 An LLM's training cutoff freezes package versions. Left alone, AI agents and developer-tools workflows write pins that were current *then*. This MCP server queries each package registry on demand, then can inventory a repo, reason about semver and conflicts, and run a safe upgrade pipeline for package management and versioning work.
 
-Built for Claude Code and other Anthropic / LLM agent setups that speak the Model Context Protocol. Use it whenever productivity depends on accurate dependency truth — codegen, migrations, audits, and automation.
+Built for Claude Code, Grok, and other LLM agent setups that speak the Model Context Protocol. Use it whenever productivity depends on accurate dependency truth — codegen, migrations, audits, and automation.
 
 ## Features
 

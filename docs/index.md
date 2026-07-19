@@ -12,6 +12,8 @@ apply upgrade pipeline.
 
 ## Install
 
+### Claude Code
+
 ```sh
 /plugin marketplace add 88plug/claude-code-plugins
 /plugin install use-latest-version@88plug
