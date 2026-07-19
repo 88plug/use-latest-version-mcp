@@ -34,7 +34,7 @@ and starts the MCP server.
     Enable auto-update once (`/plugin` → Marketplaces → **88plug** → Enable
     auto-update) and you always get the latest at startup.
 
-Manual, Docker, and generic MCP client setup: [Installation](https://github.com/88plug/use-latest-version-mcp/blob/main/installation.md).
+Manual, Docker, and generic MCP client setup: [Installation](installation.md).
 
 ## Quickstart
 
@@ -48,8 +48,8 @@ Ask the assistant:
 | Plan an upgrade, show the diff first | `optimize_versions` → `validate_upgrade_plan` → `apply_upgrades` |
 
 The apply step is **dry-run by default**. You only write files when you pass
-`dry_run: false`. Details: [Getting Started](https://github.com/88plug/use-latest-version-mcp/blob/main/getting-started.md) and
-[Tool Reference](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/tools.md#apply_upgrades).
+`dry_run: false`. Details: [Getting Started](getting-started.md) and
+[Tool Reference](reference/tools.md#apply_upgrades).
 
 ## Why it exists
 
@@ -66,7 +66,7 @@ plan, and apply dependency upgrades for a whole repo.
 | Conflict / compatibility / upgrade path | `check_compatibility`, `detect_conflicts`, `find_compatible_version`, `suggest_upgrade_path`, `resolve_conflicts` |
 | Whole-project plan → validate → apply | `optimize_versions`, `validate_upgrade_plan`, `apply_upgrades` |
 
-**15 tools** total. Full argument lists: [Tool Reference](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/tools.md).
+**15 tools** total. Full argument lists: [Tool Reference](reference/tools.md).
 
 ## Registries
 
@@ -76,7 +76,7 @@ Elm, Swift, JSR, Conda, Bioconductor, Docker Hub, GHCR, Quay, GCR, GitHub,
 GitLab, Homebrew, AUR, Snap, Flatpak, Chocolatey, CocoaPods, Gradle, Terraform,
 Ansible Galaxy, VS Code, WordPress, Jenkins.
 
-Name formats and aliases: [Supported Registries](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/registries.md).
+Name formats and aliases: [Supported Registries](reference/registries.md).
 
 ## Safety
 
@@ -92,12 +92,12 @@ limits for `github` / `ghcr` / `swift` — never required.
 
 ## Start here
 
-- [Getting Started](https://github.com/88plug/use-latest-version-mcp/blob/main/getting-started.md) — first calls and the upgrade pipeline
-- [Installation](https://github.com/88plug/use-latest-version-mcp/blob/main/installation.md) — plugin, standalone, Docker
-- [Configuration](https://github.com/88plug/use-latest-version-mcp/blob/main/configuration.md) — env vars, timeouts, HTTP transport
-- [Tool Reference](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/tools.md) — all 15 tools
-- [Supported Registries](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/registries.md) — 39 registries
-- [FAQ](https://github.com/88plug/use-latest-version-mcp/blob/main/faq.md)
+- [Getting Started](getting-started.md) — first calls and the upgrade pipeline
+- [Installation](installation.md) — plugin, standalone, Docker
+- [Configuration](configuration.md) — env vars, timeouts, HTTP transport
+- [Tool Reference](reference/tools.md) — all 15 tools
+- [Supported Registries](reference/registries.md) — 39 registries
+- [FAQ](faq.md)
 
 ## Features
 

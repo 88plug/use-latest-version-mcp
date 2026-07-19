@@ -26,12 +26,12 @@
     "automation",
     "cli",
     "claude-code-plugin",
+    "claude-skills",
     "mcp",
     "mcp-server",
     "model-context-protocol",
     "package-versions",
     "dependencies",
-    "npm",
     "registries",
     "outdated",
     "semver"

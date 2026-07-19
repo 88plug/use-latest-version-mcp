@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The published plugin is
 versioned CalVer (`YEAR.MONTH.BUILD`), auto-stamped from the commit count by the
 88plug marketplace, so each push is a uniquely identifiable release.
 
+## 2026.7.19
+
+- Compliance: add `claude-skills` to keywords (20); launch MCP via `bash` +
+  `scripts/mcp-server.sh` args (no shebang-only spawn).
+- Docs: relative MkDocs links on index; Grok Build install path on installation.
+- Smoke: assert no bare PATH-fragile command, dual-harness install name
+  `use-latest-version@88plug`, required MCP keyword trio.
+
 ## 2026.6.23
 
 ### Added

@@ -13,6 +13,13 @@
 /plugin install use-latest-version@88plug
 ```
 
+### Grok Build
+
+```text
+grok plugin marketplace add 88plug/claude-code-plugins
+grok plugin install use-latest-version@88plug --trust
+```
+
 Enable auto-update once (`/plugin` → Marketplaces → **88plug** → Enable
 auto-update) and you always get the latest at startup.
 
@@ -50,7 +57,8 @@ Point your client's MCP config at the launcher (stdio):
 {
   "mcpServers": {
     "use-latest-version": {
-      "command": "/absolute/path/to/use-latest-version-mcp/scripts/mcp-server.sh"
+      "command": "bash",
+      "args": ["/absolute/path/to/use-latest-version-mcp/scripts/mcp-server.sh"]
     }
   }
 }
