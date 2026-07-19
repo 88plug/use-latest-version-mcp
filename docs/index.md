@@ -8,6 +8,7 @@ apply upgrade pipeline.
 [![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat)](https://github.com/88plug/use-latest-version-mcp/blob/main/LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2?style=flat)](https://github.com/88plug/claude-code-plugins)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/88plug/use-latest-version-mcp)
+[![Docs](https://img.shields.io/badge/docs-online-blue?style=flat)](https://88plug.github.io/use-latest-version-mcp/)
 
 ## Install
 
@@ -31,7 +32,7 @@ and starts the MCP server.
     Enable auto-update once (`/plugin` → Marketplaces → **88plug** → Enable
     auto-update) and you always get the latest at startup.
 
-Manual, Docker, and generic MCP client setup: [Installation](installation.md).
+Manual, Docker, and generic MCP client setup: [Installation](https://github.com/88plug/use-latest-version-mcp/blob/main/installation.md).
 
 ## Quickstart
 
@@ -45,8 +46,8 @@ Ask the assistant:
 | Plan an upgrade, show the diff first | `optimize_versions` → `validate_upgrade_plan` → `apply_upgrades` |
 
 The apply step is **dry-run by default**. You only write files when you pass
-`dry_run: false`. Details: [Getting Started](getting-started.md) and
-[Tool Reference](reference/tools.md#apply_upgrades).
+`dry_run: false`. Details: [Getting Started](https://github.com/88plug/use-latest-version-mcp/blob/main/getting-started.md) and
+[Tool Reference](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/tools.md#apply_upgrades).
 
 ## Why it exists
 
@@ -63,7 +64,7 @@ plan, and apply dependency upgrades for a whole repo.
 | Conflict / compatibility / upgrade path | `check_compatibility`, `detect_conflicts`, `find_compatible_version`, `suggest_upgrade_path`, `resolve_conflicts` |
 | Whole-project plan → validate → apply | `optimize_versions`, `validate_upgrade_plan`, `apply_upgrades` |
 
-**15 tools** total. Full argument lists: [Tool Reference](reference/tools.md).
+**15 tools** total. Full argument lists: [Tool Reference](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/tools.md).
 
 ## Registries
 
@@ -73,7 +74,7 @@ Elm, Swift, JSR, Conda, Bioconductor, Docker Hub, GHCR, Quay, GCR, GitHub,
 GitLab, Homebrew, AUR, Snap, Flatpak, Chocolatey, CocoaPods, Gradle, Terraform,
 Ansible Galaxy, VS Code, WordPress, Jenkins.
 
-Name formats and aliases: [Supported Registries](reference/registries.md).
+Name formats and aliases: [Supported Registries](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/registries.md).
 
 ## Safety
 
@@ -89,9 +90,45 @@ limits for `github` / `ghcr` / `swift` — never required.
 
 ## Start here
 
-- [Getting Started](getting-started.md) — first calls and the upgrade pipeline
-- [Installation](installation.md) — plugin, standalone, Docker
-- [Configuration](configuration.md) — env vars, timeouts, HTTP transport
-- [Tool Reference](reference/tools.md) — all 15 tools
-- [Supported Registries](reference/registries.md) — 39 registries
-- [FAQ](faq.md)
+- [Getting Started](https://github.com/88plug/use-latest-version-mcp/blob/main/getting-started.md) — first calls and the upgrade pipeline
+- [Installation](https://github.com/88plug/use-latest-version-mcp/blob/main/installation.md) — plugin, standalone, Docker
+- [Configuration](https://github.com/88plug/use-latest-version-mcp/blob/main/configuration.md) — env vars, timeouts, HTTP transport
+- [Tool Reference](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/tools.md) — all 15 tools
+- [Supported Registries](https://github.com/88plug/use-latest-version-mcp/blob/main/reference/registries.md) — 39 registries
+- [FAQ](https://github.com/88plug/use-latest-version-mcp/blob/main/faq.md)
+
+## Features
+
+| Feature | Detail |
+| --- | --- |
+| Live version lookup | Latest version, package info, install command, batch checks |
+| Semver compare | Pin vs latest: `update-available` / `up-to-date` / `ahead-of-latest` |
+| Project scan | Manifests + lock files (`package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, …) |
+| Outdated report | Major / minor / patch + estimated risk |
+| Conflict reasoning | Compatibility, detect conflicts, find compatible version, upgrade path |
+| Safe upgrade pipeline | `optimize_versions` → `validate_upgrade_plan` → `apply_upgrades` |
+| Write safety | Only `apply_upgrades` writes; `dry_run: true` by default; backups + rollback |
+| 39 registries | npm, PyPI, Maven, crates.io, Go, Docker/GHCR, Homebrew, and more |
+| Local-first MCP | No API key; optional `GITHUB_TOKEN` only raises GitHub rate limits |
+
+## Development
+
+```sh
+git clone https://github.com/88plug/use-latest-version-mcp
+cd use-latest-version-mcp
+npm ci
+npm run build
+node build/index.js stdio        # or: http
+# tests
+for t in test-*.js; do node "$t"; done
+bun test test-upgrade-applier.test.js test-upgrade-validator.test.js
+```
+
+Docs site (Material for MkDocs, strict):
+
+```sh
+pip install mkdocs mkdocs-material
+mkdocs build --strict
+```
+
+See [CONTRIBUTING.md](https://github.com/88plug/use-latest-version-mcp/blob/main/CONTRIBUTING.md).

@@ -1,7 +1,5 @@
 site_name: use-latest-version-mcp
-site_description: >-
-  Always-current package versions across 39 registries, plus a safe
-  scan/optimize/validate/apply upgrade pipeline, as an MCP server.
+site_description: 'MCP server for always-current package versions and dependency upgrades — 15 tools across 39 registries for Claude Code, AI coding assistants, and any Model Context Protocol client.'
 site_author: 88plug
 site_url: https://88plug.github.io/use-latest-version-mcp/
 repo_url: https://github.com/88plug/use-latest-version-mcp
