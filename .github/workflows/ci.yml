@@ -12,7 +12,7 @@ jobs:
   test:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -51,7 +51,7 @@ jobs:
   docs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v6.3.0
         with:
           python-version: "3.13"
